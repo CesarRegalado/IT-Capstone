@@ -1,0 +1,26 @@
+Attendance Tracker Test Cases Black Box
+
+1. Description
+2. Requirements Trace
+3. Expected Output
+
+- TC-01
+    1. Student Login
+    2. Enter valid credentials
+    3. Login success message
+
+- TC-02
+    1. QR Check
+    2. Scan valid QR
+    3. Attendance recorded
+
+- TC-03
+    1. Duplicate Check-in
+    2. Scan same QR twice
+    3. Already checked in mssg
+
+- TC-04
+    1. Generate QR
+    2. Faculty generates ‘QR’
+    3. Unique QR displayed
+
