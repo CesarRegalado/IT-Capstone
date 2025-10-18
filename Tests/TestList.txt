@@ -1,0 +1,26 @@
+Attendance Tracker Test Cases
+
+1. Description
+2. Requirements Trace
+3. Expected Output
+
+- TC-101
+    1. Validate JWT token
+    2. Call route with invalid token
+    3. 401 Unauthorized 
+
+- TC-102
+    1. Check-in DB insert
+    2. Simulate QR scan
+    3. 1 record added to attendance table
+
+- TC-103
+    1. QR expiration
+    2. Generate QR, or wait past expiry
+    3. Invalid QR error returned 
+
+- TC-104
+    1. Authentication Fail
+    2. Simulate successful/unsuccessful authentication 
+    3. Result message. Prompt to retry if it fails
+
