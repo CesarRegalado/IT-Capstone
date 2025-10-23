@@ -14,6 +14,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  STUDENT
+  FACULTY
+  ADMIN
+}
+
 enum AttendanceStatus {
   PRESENT
   LATE
@@ -21,66 +27,68 @@ enum AttendanceStatus {
   ABSENT
 }
 
-model Student {
-  id          String       @id @default(uuid())
-  universityId String?     @unique
-  email       String       @unique
-  firstName   String
-  lastName    String
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  attendance  Attendance[]
-}
-
-model Faculty {
-  id        String    @id @default(uuid())
-  email     String    @unique
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
   firstName String
   lastName  String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  courses   Course[]
+  role      UserRole
+  createdAt DateTime @default(now())
+
+  // optional role-specific profiles
+  studentProfile StudentProfile?
+  facultyProfile FacultyProfile?
+
+  // relations
+  courses     Course[]     @relation("FacultyCourses") // when role=FACULTY
+  attendances Attendance[] @relation("StudentAttendance") // when role=STUDENT
+}
+
+model StudentProfile {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // add student-only fields later if needed
+}
+
+model FacultyProfile {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // add faculty-only fields later if needed
 }
 
 model Course {
-  id        String    @id @default(uuid())
-  code      String
-  title     String
-  semester  String
-  facultyId String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  faculty  Faculty @relation(fields: [facultyId], references: [id], onDelete: Cascade)
-  sessions Session[]
+  id            String    @id @default(uuid())
+  code          String
+  title         String
+  semester      String?
+  facultyUserId String
+  faculty       User      @relation("FacultyCourses", fields: [facultyUserId], references: [id])
+  sessions      Session[]
 
   @@unique([code, semester])
 }
 
 model Session {
-  id          String    @id @default(uuid())
-  courseId    String
-  startsAt    DateTime
-  endsAt      DateTime
-  qrNonce     String    @default(uuid())
-  qrExpiresAt DateTime
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id        String    @id @default(uuid())
+  courseId  String
+  startsAt  DateTime
+  endsAt    DateTime
+  qToken    String?
+  expiresAt DateTime?
 
-  course     Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course     Course       @relation(fields: [courseId], references: [id])
   attendance Attendance[]
 }
 
 model Attendance {
-  id          String           @id @default(uuid())
-  studentId   String
-  sessionId   String
-  status      AttendanceStatus @default(PRESENT)
-  checkedInAt DateTime         @default(now())
-  deviceId    String?
+  id            String           @id @default(uuid())
+  sessionId     String
+  studentUserId String
+  status        AttendanceStatus @default(PRESENT)
+  checkedInAt   DateTime         @default(now())
 
-  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
   session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student User    @relation("StudentAttendance", fields: [studentUserId], references: [id], onDelete: Cascade)
 
-  @@unique([studentId, sessionId])
+  @@unique([studentUserId, sessionId]) // prevent double check-in
 }
