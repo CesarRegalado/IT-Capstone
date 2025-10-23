@@ -1,0 +1,17 @@
+# Node
+node_modules/
+npm-debug.log
+.DS_Store
+
+# OS/System
+Thumbs.db
+
+# Prisma
+/generated/
+prisma/dev.db
+
+# Keep environment variables out of version control
+.env
+
+
+
