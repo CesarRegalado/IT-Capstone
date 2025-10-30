@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance Tracker | Login</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#2d2d2d">
+    <link rel="icon" href="icons/icon_192x192.png">
+</head>
+<body>
+    <div class="layout_container">
+        <div class="hero_section">
+            <div class="hero_content">
+                <h1>Attendance Tracker</h1>
+                <p>Attendance Tracking system for students and instructors</p>
+                <div class="feature_item">
+                    <h3>PWA Ready</h3>
+                    <p>Install as app on any device</p>
+                    <button class="btn btn_secondary btn_small" id="install_btn" style="margin-top: 10px;">
+                        <i class="fas fa-download"></i> Install App
+                    </button>
+                </div>
+                <!--FOR TEST PURPOSES. DELETE AFTER-->
+                <div class="test_accounts">
+                    <h4>Test Account:</h4>
+                    <p><strong>Email:</strong> undergraduate.student@student.edu</p>
+                    <p><strong>Password:</strong> password123</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="form_section">
+            <div class="form_container">
+                <div class="form_toggle">
+                    <div class="toggle_btn active" id="login_toggle">Login</div>
+                    <div class="toggle_btn" id="register_toggle">Register</div>
+                </div>
+                
+                <form class="form active" id="login_form">
+                    <div class="form_group">
+                        <label for="login_email">Email</label>
+                        <input type="email" id="login_email" placeholder="Enter your email" required>
+                        <div class="error_message" id="login_email_error"></div>
+                    </div>
+                    
+                    <div class="form_group">
+                        <label for="login_password">Password</label>
+                        <input type="password" id="login_password" placeholder="Enter your password" required>
+                        <span class="password_toggle" id="login_password_toggle">
+                            <i class="far fa-eye"></i>
+                        </span>
+                        <div class="error_message" id="login_password_error"></div>
+                    </div>
+                    <button type="button" class="btn btn-outline" id="passkey-login-btn">
+                        <i class="fas fa-fingerprint"></i> Login with Passkey
+                    </button>
+                    
+                    <div class="form_footer">
+                        <a href="reset_password.html">Forgot password?</a>
+                    </div>
+                    
+                    <button type="submit" class="btn btn_rounded" id="login_btn">
+                        <span class="btn_text">Login</span>
+                        <span class="btn_loading">
+                            <i class="fas fa-spinner fa-spin"></i> Processing...
+                        </span>
+                    </button>
+                </form>
+                
+                <form class="form" id="register_form" hidden>
+                    <div class="form_group">
+                        <label for="user_role">Account Type</label>
+                        <select id="user_role" required>
+                            <option value="">Select role</option>
+                            <option value="student">Student</option>
+                            <option value="instructor">Instructor</option>
+                        </select>
+                        <div class="error_message" id="user_role_error"></div>
+                    </div>
+
+                    <div class="form_group">
+                        <label for="first_name">First Name</label>
+                        <input type="text" id="first_name" placeholder="Enter first name" required>
+                        <div class="error_message" id="first_name_error"></div>
+                    </div>
+                    
+                    <div class="form_group">
+                        <label for="last_name">Last Name</label>
+                        <input type="text" id="last_name" placeholder="Enter last name" required>
+                        <div class="error_message" id="last_name_error"></div>
+                    </div>
+                    
+                    <div class="form_group">
+                        <label for="register_email">Email</label>
+                        <input type="email" id="register_email" placeholder="Enter your email" required>
+                        <div class="error_message" id="register_email_error"></div>
+                    </div>
+                    
+                    <div class="form_group">
+                        <label for="register_password">Password</label>
+                        <input type="password" id="register_password" placeholder="Create password (min. 8 characters)" required>
+                        <span class="password_toggle" id="register_password_toggle">
+                            <i class="far fa-eye"></i>
+                        </span>
+                        <div class="error_message" id="register_password_error"></div>
+                    </div>
+                    
+                    <div class="form_group">
+                        <label for="confirm_password">Confirm Password</label>
+                        <input type="password" id="confirm_password" placeholder="Confirm password" required>
+                        <span class="password_toggle" id="confirm_password_toggle">
+                            <i class="far fa-eye"></i>
+                        </span>
+                        <div class="error_message" id="confirm_password_error"></div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn_rounded" id="register_btn">
+                        <span class="btn_text">Create Account</span>
+                        <span class="btn_loading">
+                            <i class="fas fa-spinner fa-spin"></i> Creating...
+                        </span>
+                    </button>
+                    
+                    <div class="form_footer">
+                        <a href="index.html">← Back to Login</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <script src="shared-auth.js"></script>
+    <script src="student_test_data.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

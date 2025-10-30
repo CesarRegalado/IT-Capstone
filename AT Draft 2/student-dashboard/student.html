@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Dashboard</title>
+    <link rel="stylesheet" href="student.css">
+    <link rel="manifest" href="../manifest.json">
+    <meta name="theme-color" content="#2d2d2d">
+    <link rel="icon" href="../icons/icon_192x192.png">
+</head>
+<body>
+    <!-- Fixed Header -->
+    <header class="main_header">
+        <div class="header_left">
+            <button class="hamburger_menu">
+                <i class="fas fa-bars"></i>
+            </button>
+            <button class="close_sidebar">
+                <i class="fas fa-times"></i>
+            </button>
+            <div class="header_title">Student Portal</div>
+        </div>
+        <div class="header_right">
+            <div class="user_info">Welcome, <span id="student_name">Student</span>!</div>
+        </div>
+    </header>
+
+    <div class="student_layout">
+        <!-- Sidebar -->
+        <nav class="sidebar">
+            <ul class="sidebar_nav">
+                <li class="nav_item active">
+                    <a href="#checkin" class="nav_link">
+                        <i class="fas fa-qrcode"></i>
+                        <span>Check In</span>
+                    </a>
+                </li>
+                <li class="nav_item">
+                    <a href="#classes" class="nav_link">
+                        <i class="fas fa-home"></i>
+                        <span>My Classes</span>
+                    </a>
+                </li>
+                <li class="nav_item">
+                    <a href="#attendance" class="nav_link">
+                        <i class="fas fa-chart-bar"></i>
+                        <span>View Attendance</span>
+                    </a>
+                </li>
+                <li class="nav_item">
+                    <a href="#" class="nav_link logout">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>Logout</span>
+                    </a>
+                </li>
+            </ul>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main_content">
+            <header class="content_header">
+                <h1 class="page_title" id="page_title">Check In</h1>
+            </header>
+
+            <!-- Check In Section -->
+            <div id="checkin_content" class="content_section active">
+                <div class="quick_stats">
+                    <div class="stat_card">
+                        <div class="stat_number" id="present_count">0</div>
+                        <div class="stat_label">Present</div>
+                    </div>
+                    <div class="stat_card">
+                        <div class="stat_number" id="late_count">0</div>
+                        <div class="stat_label">Late</div>
+                    </div>
+                    <div class="stat_card">
+                        <div class="stat_number" id="absent_count">0</div>
+                        <div class="stat_label">Absent</div>
+                    </div>
+                </div>
+
+                <div class="checkin_options">
+                    <div class="checkin_card">
+                        <div class="card_icon">
+                            <i class="fas fa-camera"></i>
+                        </div>
+                        <h3>Scan QR Code</h3>
+                        <p>Check in by scanning QR code.</p>
+                        <button class="btn btn_primary" id="scan_qr_btn">
+                            <i class="fas fa-camera"></i>
+                            Open Scanner
+                        </button>
+                    </div>
+
+                    <div class="checkin_card">
+                        <div class="card_icon">
+                            <i class="fas fa-keyboard"></i>
+                        </div>
+                        <h3>Enter Class Code</h3>
+                        <p>Check in using Class Code.</p>
+                        <button class="btn btn_secondary" id="manual_checkin_btn">
+                            <i class="fas fa-keyboard"></i>
+                            Enter Code
+                        </button>
+                    </div>
+                </div>
+
+                <!-- QR Scanner -->
+                <div id="qr_scanner" class="qr_scanner hidden">
+                    <div class="scanner_header">
+                        <h3>QR Code Scanner</h3>
+                        <button class="btn btn_secondary" id="close_scanner">
+                            <i class="fas fa-times"></i>
+                            Close
+                        </button>
+                    </div>
+                    <div class="scanner_container">
+                        <i class="fas fa-camera fa-3x"></i>
+                        <p>Camera would activate here</p>
+                    </div>
+                    <p style="text-align: center; color: #666;">
+                        Position the QR code within the frame to scan
+                    </p>
+                </div>
+
+                <!-- Manual Check-in -->
+                <div id="manual_checkin" class="manual_checkin hidden">
+                    <div class="manual_header">
+                        <h3>Enter Course Code</h3>
+                        <button class="btn btn_secondary" id="close_manual">
+                            <i class="fas fa-times"></i>
+                            Close
+                        </button>
+                    </div>
+                    <div class="manual_form">
+                        <div class="form_group">
+                            <label for="class_code">Course Code</label>
+                            <input type="text" id="class_code" placeholder="Enter course code (e.g., MATH101)">
+                        </div>
+                        <button class="btn btn_primary" id="submit_manual_checkin" style="width: 100%;">
+                            <i class="fas fa-check"></i>
+                            Check In
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Success Message -->
+                <div id="checkin_success" class="checkin_success hidden">
+                    <div class="success_icon">
+                        <i class="fas fa-check-circle"></i>
+                    </div>
+                    <h3>Checked In!</h3>
+                    <p id="success_message">You have been marked present for the class.</p>
+                    <button class="btn btn_primary" id="close_success">
+                        Continue
+                    </button>
+                </div>
+            </div>
+
+            <!-- My Classes -->
+            <div id="classes_content" class="content_section">
+                <div id="classes_container" class="classes_container">
+                    <!-- Classes will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Attendance -->
+            <div id="attendance_content" class="content_section">
+                <h2>Attendance Overview</h2>
+                <p>View detailed attendance records and statistics for all your courses.</p>
+                
+                <div id="attendance_list">
+                    <!-- Attendance data will be populated by JavaScript -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <script src="../student_test_data.js"></script>
+    <script src="student.js"></script>
+</body>
+</html>
