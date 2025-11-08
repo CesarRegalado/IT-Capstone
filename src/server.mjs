@@ -18,8 +18,17 @@ app.get('/health', async (req, res) => {
 
 // Example route
 app.get('/students', async (_req, res) => {
-  const students = await prisma.student.findMany();
-  res.json(students);
+  try {
+    const students = await prisma.user.findMany({
+      where: { role: 'STUDENT' },
+      include: {
+        studentProfile: true
+      }
+    });
+    res.json(students);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
