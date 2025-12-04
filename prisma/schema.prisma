@@ -33,15 +33,14 @@ model User {
   firstName String
   lastName  String
   role      UserRole
+  password  String   // new field
   createdAt DateTime @default(now())
 
-  // optional role-specific profiles
   studentProfile StudentProfile?
   facultyProfile FacultyProfile?
 
-  // relations
-  courses     Course[]     @relation("FacultyCourses") // when role=FACULTY
-  attendances Attendance[] @relation("StudentAttendance") // when role=STUDENT
+  courses     Course[]     @relation("FacultyCourses")
+  attendances Attendance[] @relation("StudentAttendance")
 }
 
 model StudentProfile {
