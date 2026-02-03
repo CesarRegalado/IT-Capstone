@@ -3,22 +3,25 @@ const CACHE_NAME = 'attendance-tracker-v1';
 const urlsToCache = [
   './',
   './index.html',
-  './styles.css',
-  './script.js',
-  './shared-auth.js',
-  './student_test_data.js',
-  './instructor_test_data.js',
+  './student-dashboard.html',
+  './create_new_pass.html',
   './reset_password.html',
-  './reset_password.js',
+  './styles/styles.css',
+  './js/script.js',
+  './js/shared-auth.js',
+  './js/student_test_data.js',
+  './js/create_new_pass.js',
+  './js/reset_password.js',
   './manifest.json',
   './icons/icon_192x192.png',
   './icons/icon_512x512.png',
-  './student-dashboard/student.html',
   './student-dashboard/student.css',
   './student-dashboard/student.js',
   './instructor-dashboard/instructor.html',
   './instructor-dashboard/instructor.css',
-  './instructor-dashboard/instructor.js'
+  './instructor-dashboard/instructor.js',
+  './instructor-dashboard/instructor_test_data.js',
+  './instructor-dashboard/session.html'
 ];
 
 self.addEventListener('install', (event) => {

@@ -260,7 +260,7 @@ function initializeFormHandlers() {
                 loginTime: Date.now()
             }));
             
-            window.location.href = formData.role === 'student' ? 'student-dashboard/student.html' : 'instructor.html';
+            window.location.href = formData.role === 'student' ? 'student-dashboard.html' : 'instructor-dashboard/instructor.html';
         }, 1000);
     });
 }
@@ -292,7 +292,7 @@ function initializePasskeyAuth() {
                 }));
                 
                 setTimeout(() => {
-                    window.location.href = user.role === 'student' ? 'student-dashboard/student.html' : 'instructor.html';
+                    window.location.href = user.role === 'student' ? 'student-dashboard.html' : 'instructor-dashboard/instructor.html';
                 }, 1000);
             }
         } catch (error) {

@@ -125,7 +125,7 @@ class AuthUtils {
                 sessionStorage.setItem('currentStudent', JSON.stringify(user));
                 this.showToast(`Welcome, ${user.firstName}!`, 'success');
                 setTimeout(() => {
-                    window.location.href = 'student-dashboard/student.html';
+                    window.location.href = 'student-dashboard.html';
                 }, 1000);
             } else {
                 this.showToast('Unknown user role', 'error');

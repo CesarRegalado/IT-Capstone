@@ -154,7 +154,7 @@ class StudentDashboard {
             e.preventDefault();
             if (confirm('Are you sure you want to logout?')) {
                 sessionStorage.removeItem('currentUser');
-                window.location.href = '../index.html';
+                window.location.href = 'index.html';
             }
         });
     }
