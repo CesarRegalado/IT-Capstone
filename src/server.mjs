@@ -11,8 +11,7 @@ app.use(express.json());
 app.use(
   cors({
     origin: [
-      'http://localhost:3000', //  local dev
-      // 'https://your-amplify-url.amazonaws.com', // <-- replace with your real Amplify URL if we go there
+      'https://deploy.d18ozidbfuhuju.amplifyapp.com'
     ],
     credentials: true,
   })
