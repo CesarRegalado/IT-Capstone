@@ -1,7 +1,7 @@
 // Test Data for Student Login
 const STUDENT_TEST_DATA = {
     user: {
-        id: 'stu_001',
+        id: 'stu_undergraduate_001',  // Changed to avoid conflict with instructor test data
         universityId: 'S12345678',
         email: 'undergraduate.student@student.edu',
         firstName: 'Undergraduate',
@@ -75,7 +75,7 @@ const STUDENT_TEST_DATA = {
     attendance: [
         {
             id: 'att_001',
-            studentId: 'stu_001',
+            studentId: 'stu_undergraduate_001',  // Updated to match new student ID
             sessionId: 'sess_001',
             status: 'PRESENT',
             checkedInAt: '2024-10-15T10:05:00Z',
@@ -89,7 +89,7 @@ const STUDENT_TEST_DATA = {
         },
         {
             id: 'att_002',
-            studentId: 'stu_001',
+            studentId: 'stu_undergraduate_001',  // Updated to match new student ID
             sessionId: 'sess_003',
             status: 'ABSENT',
             checkedInAt: null,
@@ -103,7 +103,7 @@ const STUDENT_TEST_DATA = {
         },
         {
             id: 'att_003',
-            studentId: 'stu_001',
+            studentId: 'stu_undergraduate_001',  // Updated to match new student ID
             sessionId: 'sess_004',
             status: 'PRESENT',
             checkedInAt: '2024-10-13T14:00:00Z',

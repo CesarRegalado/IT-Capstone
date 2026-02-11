@@ -5,6 +5,8 @@ class StudentDashboard {
         this.courses = [];
         this.sessions = [];
         this.attendance = [];
+        this.navigationHistory = [];
+        this.allCourses = []; // Available courses from instructors
         
         console.log('StudentDashboard: Initializing...');
         this.initializeApp();
@@ -32,6 +34,15 @@ class StudentDashboard {
         this.initializeNavigation();
         this.initializeEventListeners();
         this.setupLogout();
+        this.initializeBrowserNavigation();
+        
+        // Set initial navigation state
+        this.pushNavigationState('checkin');
+        
+        // Periodically reload active sessions
+        setInterval(() => {
+            this.loadActiveSessions();
+        }, 5000); // Check every 5 seconds
         
         // Update dashboard
         this.updateDashboard();
@@ -39,48 +50,136 @@ class StudentDashboard {
         console.log('StudentDashboard: Ready!');
     }
 
+    initializeBrowserNavigation() {
+        // Back button handling
+        const backBtn = document.getElementById('back_btn');
+        if (backBtn) {
+            backBtn.addEventListener('click', () => this.handleBackButton());
+        }
+
+        // Browser back/forward - prevent page exit
+        window.addEventListener('popstate', (event) => {
+            event.preventDefault();
+            if (this.navigationHistory.length > 1) {
+                const previous = this.popNavigationState();
+                if (previous) {
+                    this.switchSection(previous, false);
+                }
+            } else {
+                // Stay on first page instead of exiting
+                this.switchSection('checkin', false);
+            }
+        });
+
+        // Push initial state to prevent back button from exiting
+        if (window.history && window.history.pushState) {
+            window.history.pushState({ section: 'checkin' }, '', '#checkin');
+        }
+
+        // Mobile back button (Android)
+        window.addEventListener('beforeunload', () => {
+            this.saveNavigationState();
+        });
+
+        // Click outside sidebar to close
+        document.addEventListener('click', (e) => {
+            const sidebar = document.querySelector('.sidebar');
+            const hamburgerMenu = document.querySelector('.hamburger_menu');
+            const closeSidebar = document.querySelector('.close_sidebar');
+            
+            if (sidebar && sidebar.classList.contains('expanded') &&
+                !sidebar.contains(e.target) && 
+                !hamburgerMenu.contains(e.target) &&
+                !closeSidebar.contains(e.target)) {
+                this.toggleSidebar();
+            }
+        });
+    }
+
+    pushNavigationState(section) {
+        this.navigationHistory.push(section);
+        this.updateBackButton();
+        sessionStorage.setItem('studentNavHistory', JSON.stringify(this.navigationHistory));
+    }
+
+    popNavigationState() {
+        if (this.navigationHistory.length > 1) {
+            this.navigationHistory.pop();
+            const previous = this.navigationHistory[this.navigationHistory.length - 1];
+            this.updateBackButton();
+            sessionStorage.setItem('studentNavHistory', JSON.stringify(this.navigationHistory));
+            return previous;
+        }
+        return null;
+    }
+
+    updateBackButton() {
+        const backBtn = document.getElementById('back_btn');
+        if (backBtn) {
+            // Use requestAnimationFrame for immediate visual update
+            requestAnimationFrame(() => {
+                if (this.navigationHistory.length > 1) {
+                    backBtn.classList.remove('hidden');
+                } else {
+                    backBtn.classList.add('hidden');
+                }
+            });
+        }
+    }
+
+    handleBackButton() {
+        const previous = this.popNavigationState();
+        if (previous) {
+            this.switchSection(previous, false);
+        }
+    }
+
+    saveNavigationState() {
+        sessionStorage.setItem('studentNavHistory', JSON.stringify(this.navigationHistory));
+    }
+
     loadTestData() {
         // Use the test data from the main app. TO BE REMOVED
         if (typeof STUDENT_TEST_DATA !== 'undefined') {
             this.currentUser = STUDENT_TEST_DATA.user;
             this.courses = STUDENT_TEST_DATA.courses;
-            this.sessions = STUDENT_TEST_DATA.sessions;
             this.attendance = STUDENT_TEST_DATA.attendance;
+            
+            // Load active sessions from localStorage (shared with instructor)
+            this.loadActiveSessions();
         } else {
             // Fallback to local test data. TEMPORARY
             this.currentUser = {
+                id: 'stu_001',
                 firstName: 'Undergraduate',
                 lastName: 'Student',
-                email: 'undergraduate.student@student.edu'
+                email: 'undergraduate.student@student.edu',
+                universityId: 'S12345678'
             };
-            this.courses = [
-                {
-                    id: 'course_001',
-                    code: 'MATH101',
-                    title: 'Calculus I',
-                    semester: 'Fall 2024',
-                    faculty: { firstName: 'Sarah', lastName: 'Smith' }
-                },
-                {
-                    id: 'course_002', 
-                    code: 'PHYS102',
-                    title: 'Physics I',
-                    semester: 'Fall 2024',
-                    faculty: { firstName: 'Michael', lastName: 'Johnson' }
-                }
-            ];
-            this.attendance = [
-                {
-                    session: {
-                        course: { code: 'MATH101', title: 'Calculus I' },
-                        startsAt: '2024-10-15T10:00:00Z'
-                    },
-                    status: 'PRESENT'
-                }
-            ];
+            this.courses = [];
+            this.attendance = [];
+            this.sessions = [];
         }
         
         console.log('Loaded:', this.courses.length, 'courses');
+    }
+
+    loadActiveSessions() {
+        try {
+            // Load sessions from localStorage (shared with instructor)
+            const sessionsData = localStorage.getItem('attendance_sessions');
+            if (sessionsData) {
+                const parsedData = JSON.parse(sessionsData);
+                // Filter only active sessions
+                this.sessions = (parsedData.sessions || []).filter(s => s.status === 'active');
+                console.log('Loaded', this.sessions.length, 'active sessions');
+            } else {
+                this.sessions = [];
+            }
+        } catch (error) {
+            console.error('Error loading sessions:', error);
+            this.sessions = [];
+        }
     }
 
     initializeNavigation() {
@@ -115,22 +214,39 @@ class StudentDashboard {
         }
     }
 
-    switchSection(section) {
+    switchSection(section, pushToHistory = true) {
         // Update navigation
         document.querySelectorAll('.nav_item').forEach(item => item.classList.remove('active'));
-        document.querySelector(`.nav_link[href="#${section}"]`).parentElement.classList.add('active');
+        const navLink = document.querySelector(`.nav_link[href="#${section}"]`);
+        if (navLink && navLink.parentElement) {
+            navLink.parentElement.classList.add('active');
+        }
         
         // Update content
         document.querySelectorAll('.content_section').forEach(section => section.classList.remove('active'));
-        document.getElementById(section + '_content').classList.add('active');
+        const contentSection = document.getElementById(section + '_content');
+        if (contentSection) {
+            contentSection.classList.add('active');
+        }
         
         // Update title
-        const sectionTitle = document.querySelector(`.nav_link[href="#${section}"] span`).textContent;
+        const sectionTitle = navLink ? navLink.querySelector('span').textContent : 'Dashboard';
         this.updateUIElement('page_title', sectionTitle);
+        
+        // Navigation history
+        if (pushToHistory) {
+            this.pushNavigationState(section);
+            if (window.history && window.history.pushState) {
+                window.history.pushState({ section: section }, '', `#${section}`);
+            }
+        }
         
         // Close sidebar on mobile
         if (window.innerWidth <= 768) {
-            this.toggleSidebar();
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar && sidebar.classList.contains('expanded')) {
+                this.toggleSidebar();
+            }
         }
     }
 
@@ -144,9 +260,21 @@ class StudentDashboard {
         document.getElementById('close_success').addEventListener('click', () => this.closeSuccessMessage());
 
         // Enter key for manual check-in
-        document.getElementById('class_code').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') this.submitManualCheckIn();
-        });
+        const checkinCodeInput = document.getElementById('checkin_code');
+        if (checkinCodeInput) {
+            checkinCodeInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') this.submitManualCheckIn();
+            });
+        }
+
+        // Add course form
+        const addCourseForm = document.getElementById('add_course_form');
+        if (addCourseForm) {
+            addCourseForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.addCourseByCode();
+            });
+        }
     }
 
     setupLogout() {
@@ -161,7 +289,6 @@ class StudentDashboard {
 
     updateDashboard() {
         this.renderCourses();
-        this.renderAttendanceOverview();
         this.renderAttendanceDetails();
     }
 
@@ -189,10 +316,6 @@ class StudentDashboard {
         const totalSessions = courseAttendance.length;
         const attendancePercentage = totalSessions > 0 ? Math.round((presentCount / totalSessions) * 100) : 0;
         
-        const attendanceClass = attendancePercentage >= 90 ? 'excellent' : 
-                              attendancePercentage >= 80 ? 'good' : 
-                              attendancePercentage >= 70 ? 'warning' : 'poor';
-        
         // Find today's session for this course
         const todaySession = this.sessions.find(s => s.courseId === course.id);
         
@@ -209,9 +332,12 @@ class StudentDashboard {
                         <p><i class="fas fa-clock"></i> Today at ${new Date(todaySession.startsAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                     ` : ''}
                 </div>
-                <div class="attendance_badge attendance_${attendanceClass}">
-                    ${attendancePercentage}% Attendance (${presentCount}/${totalSessions})
+                
+                <!-- Simple Attendance Stats -->
+                <div class="class_attendance_simple">
+                    <span class="attendance_text">Attendance: ${presentCount}/${totalSessions} (${attendancePercentage}%)</span>
                 </div>
+                
                 <div class="class_actions">
                     <button class="btn btn_primary btn_small" onclick="studentDashboard.checkInToCourse('${course.id}')">
                         <i class="fas fa-qrcode"></i>
@@ -338,15 +464,28 @@ class StudentDashboard {
     }
 
     processQRCheckIn(qrNonce) {
-        const session = this.sessions.find(s => s.qrNonce === qrNonce);
+        // Reload sessions to get latest
+        this.loadActiveSessions();
+        
+        const session = this.sessions.find(s => s.qrNonce === qrNonce && s.status === 'active');
         if (session) {
             this.closeQRScanner();
             this.recordAttendance(session, 'PRESENT');
+            
+            const course = this.courses.find(c => c.id === session.courseId);
+            const courseName = course ? course.title : session.courseTitle || 'class';
+            
             document.getElementById('success_message').textContent = 
-                `Checked in to ${session.course.title}`;
+                `Successfully checked in to ${courseName}!`;
             this.showSuccessMessage();
+            
+            // Navigate to the course details after check-in
+            setTimeout(() => {
+                this.closeSuccessMessage();
+                this.viewCourseDetails(session.courseId);
+            }, 2500);
         } else {
-            alert('Invalid QR code. Please try again.');
+            alert('Invalid QR code or session has ended. Please try again.');
             this.closeQRScanner();
         }
     }
@@ -362,20 +501,48 @@ class StudentDashboard {
     }
 
     submitManualCheckIn() {
-        const code = document.getElementById('class_code').value.trim().toUpperCase();
-        if (code) {
-            const session = this.sessions.find(s => s.course.code === code);
-            if (session) {
-                this.closeManualCheckIn();
-                this.recordAttendance(session, 'PRESENT');
-                document.getElementById('success_message').textContent = 
-                    `Checked in to ${session.course.title}`;
-                this.showSuccessMessage();
-            } else {
-                alert('No active session found for this course. Try: MATH101, PHYS102, or CS101');
-            }
+        const code = document.getElementById('checkin_code').value.trim().toUpperCase();
+        if (!code) {
+            alert('Please enter a check-in code');
+            return;
+        }
+
+        console.log('Checking in with code:', code);
+        
+        // Reload sessions to get latest
+        this.loadActiveSessions();
+        
+        console.log('Active sessions:', this.sessions);
+        
+        // Try to find active session by check-in code
+        const session = this.sessions.find(s => s.classCode === code && s.status === 'active');
+        
+        if (session) {
+            console.log('Found session:', session);
+            
+            this.closeManualCheckIn();
+            this.recordAttendance(session, 'PRESENT');
+            
+            const course = this.courses.find(c => c.id === session.courseId);
+            const courseName = course ? course.title : session.courseTitle || 'class';
+            
+            console.log('Showing success message for:', courseName);
+            
+            document.getElementById('success_message').textContent = 
+                `Successfully checked in to ${courseName}!`;
+            this.showSuccessMessage();
+            
+            console.log('Success message shown, setting timeout for redirect');
+            
+            // Navigate to the course details after check-in
+            setTimeout(() => {
+                console.log('Timeout fired, closing success and navigating');
+                this.closeSuccessMessage();
+                this.viewCourseDetails(session.courseId);
+            }, 2500);
         } else {
-            alert('Please enter a course code');
+            console.log('Session not found');
+            alert('Invalid or expired check-in code. Please try again or scan the QR code.');
         }
     }
 
@@ -405,29 +572,205 @@ class StudentDashboard {
     showSuccessMessage() {
         const successElement = document.getElementById('checkin_success');
         successElement.classList.remove('hidden');
-        
-        setTimeout(() => {
-            this.closeSuccessMessage();
-        }, 3000);
+        // Don't auto-close here, let the caller handle it
     }
 
     closeSuccessMessage() {
-        document.getElementById('checkin_success').classList.add('hidden');
+        const successElement = document.getElementById('checkin_success');
+        if (successElement) {
+            successElement.classList.add('hidden');
+        }
     }
 
     checkInToCourse(courseId) {
-        this.switchSection('checkin');
+        // Reload active sessions to get latest data
+        this.loadActiveSessions();
         
-        const course = this.courses.find(c => c.id === courseId);
-        setTimeout(() => {
-            document.getElementById('success_message').textContent = 
-                `Ready to check in for ${course.title}`;
-            this.openQRScanner();
-        }, 500);
+        // Navigate to check-in page
+        this.switchSection('checkin');
     }
 
     viewCourseDetails(courseId) {
+        console.log('viewCourseDetails called with courseId:', courseId);
+        
+        // Store the selected course
+        this.selectedCourseId = courseId;
+        
+        // Navigate to attendance page
+        console.log('Switching to attendance section');
         this.switchSection('attendance');
+        
+        // Filter and render attendance for this specific course
+        console.log('Rendering course attendance details');
+        this.renderCourseAttendanceDetails(courseId);
+    }
+
+    renderCourseAttendanceDetails(courseId) {
+        const course = this.courses.find(c => c.id === courseId);
+        if (!course) return;
+
+        const container = document.getElementById('attendance_list');
+        
+        // Filter attendance for this course only
+        const courseAttendance = this.attendance.filter(a => 
+            a.session.course.code === course.code
+        );
+
+        if (courseAttendance.length === 0) {
+            container.innerHTML = `
+                <div class="course_attendance_header">
+                    <h3>${this.escapeHtml(course.title)} (${this.escapeHtml(course.code)})</h3>
+                </div>
+                <div class="empty_attendance">
+                    <i class="fas fa-clipboard-list"></i>
+                    <p>No attendance records yet for this course</p>
+                </div>
+            `;
+            return;
+        }
+
+        // Calculate stats
+        const presentCount = courseAttendance.filter(a => a.status === 'PRESENT').length;
+        const lateCount = courseAttendance.filter(a => a.status === 'LATE').length;
+        const absentCount = courseAttendance.filter(a => a.status === 'ABSENT').length;
+        const totalSessions = courseAttendance.length;
+        const attendancePercentage = totalSessions > 0 ? Math.round((presentCount / totalSessions) * 100) : 0;
+
+        container.innerHTML = `
+            <div class="course_attendance_header">
+                <h3>${this.escapeHtml(course.title)} (${this.escapeHtml(course.code)})</h3>
+                <div class="course_attendance_summary">
+                    <div class="summary_stat">
+                        <span class="stat_number">${attendancePercentage}%</span>
+                        <span class="stat_label">Attendance Rate</span>
+                    </div>
+                    <div class="summary_stat">
+                        <span class="stat_number">${presentCount}</span>
+                        <span class="stat_label">Present</span>
+                    </div>
+                    <div class="summary_stat">
+                        <span class="stat_number">${lateCount}</span>
+                        <span class="stat_label">Late</span>
+                    </div>
+                    <div class="summary_stat">
+                        <span class="stat_number">${absentCount}</span>
+                        <span class="stat_label">Absent</span>
+                    </div>
+                    <div class="summary_stat">
+                        <span class="stat_number">${totalSessions}</span>
+                        <span class="stat_label">Total Sessions</span>
+                    </div>
+                </div>
+            </div>
+            <div class="attendance_class">
+                <div class="attendance_dates">
+                    ${courseAttendance.map(record => this.createAttendanceDate(record)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    openAddCourseModal() {
+        const modal = document.getElementById('add_course_modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            document.getElementById('course_code_input').focus();
+        }
+    }
+
+    closeAddCourseModal() {
+        const modal = document.getElementById('add_course_modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            document.getElementById('add_course_form').reset();
+        }
+    }
+
+    async addCourseByCode() {
+        const courseCode = document.getElementById('course_code_input').value.trim().toUpperCase();
+        
+        if (!courseCode) {
+            alert('Please enter a course code');
+            return;
+        }
+
+        console.log('Looking for course:', courseCode);
+
+        // Get course from global registry
+        const course = this.findCourseInRegistry(courseCode);
+
+        if (course) {
+            console.log('Found course:', course);
+            
+            // Check if already enrolled
+            if (this.courses.find(c => c.id === course.id)) {
+                alert('You are already enrolled in this course');
+                return;
+            }
+
+            // Add course to student's courses
+            this.courses.push(course);
+            
+            // Add student to instructor's pending list
+            this.addToPendingList(course.id);
+
+            this.closeAddCourseModal();
+            this.updateDashboard();
+            alert(`Successfully requested to join ${course.title}!\n\nWaiting for instructor approval.\n\nThe instructor will see your request in their "Add/Remove Students" panel.`);
+        } else {
+            console.log('Course not found in registry');
+            const registry = JSON.parse(localStorage.getItem('globalCourseRegistry') || '[]');
+            console.log('Available courses:', registry);
+            alert('Course not found. Please check the course code and try again.\n\nMake sure the instructor has created the course first.');
+        }
+    }
+
+    findCourseInRegistry(courseCode) {
+        try {
+            const registry = JSON.parse(localStorage.getItem('globalCourseRegistry') || '[]');
+            console.log('Searching registry for:', courseCode);
+            console.log('Registry contents:', registry);
+            return registry.find(c => c.code.toUpperCase() === courseCode);
+        } catch (error) {
+            console.error('Error reading course registry:', error);
+            return null;
+        }
+    }
+
+    addToPendingList(courseId) {
+        try {
+            // Get pending students from localStorage
+            let pendingStudents = JSON.parse(localStorage.getItem('pendingStudents') || '{}');
+            
+            if (!pendingStudents[courseId]) {
+                pendingStudents[courseId] = [];
+            }
+
+            // Create student info
+            const studentInfo = {
+                id: this.currentUser.id || 'student_' + Date.now(),
+                universityId: this.currentUser.universityId || 'S' + Date.now(),
+                firstName: this.currentUser.firstName,
+                lastName: this.currentUser.lastName,
+                email: this.currentUser.email,
+                requestedAt: new Date().toISOString()
+            };
+
+            console.log('Adding student to pending:', studentInfo);
+
+            // Check if already in pending list
+            const existingIndex = pendingStudents[courseId].findIndex(s => s.id === studentInfo.id);
+            if (existingIndex === -1) {
+                pendingStudents[courseId].push(studentInfo);
+                localStorage.setItem('pendingStudents', JSON.stringify(pendingStudents));
+                console.log('Added to pending list for course:', courseId);
+                console.log('Pending students:', pendingStudents);
+            } else {
+                console.log('Student already in pending list');
+            }
+        } catch (error) {
+            console.error('Error adding to pending list:', error);
+        }
     }
 
     // Utility methods
@@ -441,6 +784,24 @@ class StudentDashboard {
         div.textContent = text;
         return div.innerHTML;
     }
+
+    showToast(message, duration = 3000) {
+        // Create toast if it doesn't exist
+        let toast = document.getElementById('toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'toast';
+            toast.className = 'toast';
+            document.body.appendChild(toast);
+        }
+        
+        toast.textContent = message;
+        toast.classList.add('show');
+        
+        setTimeout(() => {
+            toast.classList.remove('show');
+        }, duration);
+    }
 }
 
 // Initialize the dashboard
@@ -448,15 +809,15 @@ document.addEventListener('DOMContentLoaded', () => {
     window.studentDashboard = new StudentDashboard();
 });
 
-// Close sidebar when clicking outside on mobile
-document.addEventListener('click', function(e) {
-    const sidebar = document.querySelector('.sidebar');
-    const hamburgerMenu = document.querySelector('.hamburger_menu');
-    
-    if (window.innerWidth <= 768 && 
-        sidebar.classList.contains('expanded') &&
-        !sidebar.contains(e.target) && 
-        !hamburgerMenu.contains(e.target)) {
-        window.studentDashboard.toggleSidebar();
+// Global functions
+function openAddCourseModal() {
+    if (window.studentDashboard) {
+        window.studentDashboard.openAddCourseModal();
     }
-});
+}
+
+function closeAddCourseModal() {
+    if (window.studentDashboard) {
+        window.studentDashboard.closeAddCourseModal();
+    }
+}

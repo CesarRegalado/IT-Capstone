@@ -1,0 +1,306 @@
+/* Added buttons, and little details for UX */
+
+/* Back Button */
+.back_btn {
+    background: transparent;
+    border: none;
+    color: #fff;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    margin-right: 10px;
+    opacity: 1;
+    transform: scale(1);
+}
+
+.back_btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.back_btn.hidden {
+    display: none;
+    opacity: 0;
+    transform: scale(0.8);
+}
+
+/* Classes Header */
+.classes_header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 25px;
+}
+
+.classes_header h2 {
+    margin: 0;
+    color: #333;
+}
+
+/* Add Course Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal_content {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    max-width: 500px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal_header {
+    padding: 20px 25px;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal_title {
+    margin: 0;
+    font-size: 1.5rem;
+    color: #333;
+}
+
+.close_modal {
+    background: transparent;
+    border: none;
+    font-size: 1.5rem;
+    color: #666;
+    cursor: pointer;
+    padding: 5px;
+    line-height: 1;
+    transition: color 0.2s;
+}
+
+.close_modal:hover {
+    color: #333;
+}
+
+.modal_body {
+    padding: 25px;
+}
+
+.form_group {
+    margin-bottom: 20px;
+}
+
+.form_group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #333;
+}
+
+.form_group input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 1rem;
+    transition: border-color 0.2s;
+}
+
+.form_group input:focus {
+    outline: none;
+    border-color: #333;
+}
+
+.form_group small {
+    display: block;
+    margin-top: 5px;
+    color: #666;
+    font-size: 0.85rem;
+}
+
+.form_actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 25px;
+}
+
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn_primary {
+    background: #333;
+    color: white;
+}
+
+.btn_primary:hover {
+    background: #1a1a1a;
+}
+
+.btn_secondary {
+    background: #f0f0f0;
+    color: #333;
+}
+
+.btn_secondary:hover {
+    background: #e0e0e0;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+    .classes_header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 15px;
+    }
+
+    .classes_header .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .modal_content {
+        width: 95%;
+        margin: 10px;
+    }
+
+    .modal_body {
+        padding: 20px;
+    }
+
+    .form_actions {
+        flex-direction: column;
+    }
+
+    .form_actions .btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Check-in Code Styling */
+#checkin_code {
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    font-family: 'Courier New', monospace;
+    font-size: 1.2rem;
+    text-align: center;
+}
+
+/* Simple Attendance Display */
+.class_attendance_simple {
+    padding: 12px;
+    background: #f5f5f5;
+    border-radius: 4px;
+    margin: 15px 0;
+    text-align: center;
+}
+
+.attendance_text {
+    font-size: 0.95rem;
+    color: #333;
+    font-weight: 500;
+}
+
+/* PopUp Notification */
+.toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: white;
+    padding: 15px 25px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 10000;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+    max-width: 90%;
+    text-align: center;
+}
+
+.toast.show {
+    opacity: 1;
+}
+
+/* Course card highlight animation */
+.class_card {
+    transition: all 0.3s ease;
+}
+
+/* Course Attendance Details */
+.course_attendance_header {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.course_attendance_header h3 {
+    margin: 0 0 20px 0;
+    color: #333;
+    font-size: 1.3rem;
+}
+
+.course_attendance_summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 15px;
+}
+
+.summary_stat {
+    text-align: center;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 6px;
+}
+
+.summary_stat .stat_number {
+    display: block;
+    font-size: 1.8rem;
+    font-weight: bold;
+    color: #333;
+    margin-bottom: 5px;
+}
+
+.summary_stat .stat_label {
+    display: block;
+    font-size: 0.85rem;
+    color: #666;
+}
+
+@media (max-width: 768px) {
+    .course_attendance_summary {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .summary_stat .stat_number {
+        font-size: 1.5rem;
+    }
+}

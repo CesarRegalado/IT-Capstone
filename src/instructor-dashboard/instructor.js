@@ -18,6 +18,8 @@ class InstructorDashboard {
         this.editingSession = null;
         this.currentSection = 'courses';
         this.projectorWindow = null;
+        this.navigationHistory = [];
+        this.pendingStudents = new Map(); // courseId -> array of pending students
         
         this.initializeApp();
     }
@@ -61,6 +63,15 @@ class InstructorDashboard {
             // Initialize browser navigation handling
             this.initializeBrowserNavigation();
             
+            // Initialize back button
+            const backBtn = document.getElementById('back_btn');
+            if (backBtn) {
+                backBtn.addEventListener('click', () => this.handleBackButton());
+            }
+            
+            // Set initial navigation state
+            this.pushNavigationState('courses', {});
+            
             // Restore app state
             this.restoreAppState();
             
@@ -72,17 +83,47 @@ class InstructorDashboard {
     }
 
     initializeBrowserNavigation() {
-        // Cross-browser popstate handling
+        // Cross-browser popstate handling - prevent page exit
         window.addEventListener('popstate', (event) => {
-            if (event.state && event.state.section) {
-                this.switchSection(event.state.section, false);
+            event.preventDefault();
+            if (this.navigationHistory.length > 1) {
+                const previous = this.popNavigationState();
+                if (previous) {
+                    this.switchSection(previous.section, false);
+                    if (previous.data.courseId) {
+                        this.currentCourse = this.courses.find(c => c.id === previous.data.courseId);
+                    }
+                }
             } else {
+                // Stay on first page instead of exiting
                 this.switchSection('courses', false);
             }
         });
 
+        // Push initial state to prevent back button from exiting
+        if (window.history && window.history.pushState) {
+            window.history.pushState({ section: 'courses' }, '', '#courses');
+        }
+
         window.addEventListener('beforeunload', (event) => {
             this.saveAppState();
+        });
+
+        // Click outside sidebar to close
+        document.addEventListener('click', (e) => {
+            const sidebar = document.querySelector('.sidebar');
+            const hamburgerMenu = document.querySelector('.hamburger_menu');
+            const closeSidebar = document.querySelector('.close_sidebar');
+            
+            if (sidebar && sidebar.classList.contains('expanded') &&
+                !sidebar.contains(e.target) && 
+                !hamburgerMenu.contains(e.target) &&
+                !closeSidebar.contains(e.target)) {
+                const sidebarExpanded = sidebar.classList.contains('expanded');
+                if (sidebarExpanded) {
+                    this.toggleSidebar();
+                }
+            }
         });
     }
 
@@ -153,7 +194,26 @@ class InstructorDashboard {
             console.log('INSTRUCTOR_TEST_DATA found');
             this.currentUser = window.INSTRUCTOR_TEST_DATA.user;
             this.courses = window.INSTRUCTOR_TEST_DATA.courses || [];
-            this.students = window.INSTRUCTOR_TEST_DATA.students || [];
+            
+            // Load test students ONLY if we don't have any students yet
+            // This preserves students added via approval
+            if (!this.students || this.students.length === 0) {
+                this.students = window.INSTRUCTOR_TEST_DATA.students || [];
+                console.log('Loaded test students:', this.students.length);
+            } else {
+                console.log('Keeping existing students (from approvals):', this.students.length);
+            }
+            
+            // Add existing courses to global registry
+            this.courses.forEach(course => {
+                if (!course.faculty) {
+                    course.faculty = {
+                        firstName: this.currentUser.firstName,
+                        lastName: this.currentUser.lastName
+                    };
+                }
+                this.addToGlobalCourseRegistry(course);
+            });
             
             // Only use test data sessions if we don't have any in storage
             if (this.sessions.length === 0 && window.INSTRUCTOR_TEST_DATA.sessions) {
@@ -267,6 +327,9 @@ class InstructorDashboard {
         
         if (pushToHistory) {
             sessionStorage.setItem('currentSection', section);
+            this.pushNavigationState(section, { 
+                courseId: this.currentCourse ? this.currentCourse.id : null 
+            });
         }
         
         // Cross-browser classList handling
@@ -334,7 +397,10 @@ class InstructorDashboard {
         
         // Responsive behavior
         if (window.innerWidth <= 768) {
-            this.toggleSidebar();
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar && sidebar.classList.contains('expanded')) {
+                this.toggleSidebar();
+            }
         }
         
         this.saveAppState();
@@ -528,6 +594,12 @@ class InstructorDashboard {
                 }
             });
             
+            // Remove from global registry
+            this.removeFromGlobalCourseRegistry(course.code);
+            
+            // Remove pending students for this course
+            this.removePendingStudentsForCourse(courseId);
+            
             if (this.currentCourse && this.currentCourse.id === courseId) {
                 this.currentCourse = null;
             }
@@ -546,6 +618,28 @@ class InstructorDashboard {
             if (this.currentSection === 'course_management' || this.currentSection === 'course_details') {
                 this.switchSection('courses');
             }
+        }
+    }
+
+    removeFromGlobalCourseRegistry(courseCode) {
+        try {
+            let registry = JSON.parse(localStorage.getItem('globalCourseRegistry') || '[]');
+            registry = registry.filter(c => c.code !== courseCode);
+            localStorage.setItem('globalCourseRegistry', JSON.stringify(registry));
+            console.log('Course removed from global registry:', courseCode);
+        } catch (error) {
+            console.error('Error removing course from registry:', error);
+        }
+    }
+
+    removePendingStudentsForCourse(courseId) {
+        try {
+            let allPending = JSON.parse(localStorage.getItem('pendingStudents') || '{}');
+            delete allPending[courseId];
+            localStorage.setItem('pendingStudents', JSON.stringify(allPending));
+            this.pendingStudents.delete(courseId);
+        } catch (error) {
+            console.error('Error removing pending students:', error);
         }
     }
 
@@ -658,10 +752,22 @@ class InstructorDashboard {
         
         const courseStudents = this.getStudentsForCourse(courseId);
         
+        // Update stats
+        const totalEnrolled = document.getElementById('total_enrolled');
+        if (totalEnrolled) {
+            totalEnrolled.textContent = courseStudents.length;
+        }
+
+        const avgAttendance = document.getElementById('avg_attendance');
+        if (avgAttendance) {
+            const avg = this.calculateAverageAttendance(courseId);
+            avgAttendance.textContent = avg + '%';
+        }
+        
         if (courseStudents.length === 0) {
             container.innerHTML = `
                 <tr>
-                    <td colspan="5" style="text-align: center; padding: 40px; color: #666;">
+                    <td colspan="6" style="text-align: center; padding: 40px; color: #666;">
                         <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 10px; display: block;"></i>
                         No students enrolled in this course
                     </td>
@@ -687,6 +793,7 @@ class InstructorDashboard {
     createStudentRow(student, courseId) {
         const currentStatus = this.getCurrentAttendanceStatus(student.id, courseId);
         const canEdit = this.activeSession && this.activeSession.courseId === courseId;
+        const attendanceRate = this.calculateStudentAttendanceRate(student.id, courseId);
         
         const buttonDisabled = !canEdit;
         const buttonStyle = buttonDisabled ? 'disabled style="opacity: 0.6; cursor: not-allowed;"' : 'style="cursor: pointer;"';
@@ -696,6 +803,7 @@ class InstructorDashboard {
                 <td>${this.escapeHtml(student.universityId)}</td>
                 <td>${this.escapeHtml(student.firstName + ' ' + student.lastName)}</td>
                 <td>${this.escapeHtml(student.email)}</td>
+                <td><span class="attendance_rate">${attendanceRate}%</span></td>
                 <td>
                     <span class="current_status ${currentStatus.toLowerCase()}" id="status_${student.id}">
                         ${currentStatus.toLowerCase()}
@@ -1717,7 +1825,7 @@ class InstructorDashboard {
         const courseData = {
             id: 'course_' + Date.now(),
             title: courseName.value,
-            code: courseCode.value,
+            code: courseCode.value.toUpperCase(),
             semester: courseSemester.value,
             schedule: {
                 days: Array.from(sessionDays.selectedOptions).map(opt => opt.value),
@@ -1725,14 +1833,45 @@ class InstructorDashboard {
                 endTime: sessionEndTime.value,
                 location: sessionLocation.value
             },
-            instructorId: this.currentUser.id || 'instructor_1'
+            instructorId: this.currentUser.id || 'instructor_1',
+            faculty: {
+                firstName: this.currentUser.firstName,
+                lastName: this.currentUser.lastName
+            }
         };
 
         this.courses.push(courseData);
+        
+        // Add to global course registry for students to find
+        this.addToGlobalCourseRegistry(courseData);
+        
         this.closeCourseModal();
         this.renderCourses();
         this.saveAppState();
         this.showToast('Course added successfully');
+    }
+
+    addToGlobalCourseRegistry(course) {
+        try {
+            // Get existing registry from localStorage
+            let registry = JSON.parse(localStorage.getItem('globalCourseRegistry') || '[]');
+            
+            // Check if course code already exists
+            const existingIndex = registry.findIndex(c => c.code === course.code);
+            if (existingIndex !== -1) {
+                // Update existing course
+                registry[existingIndex] = course;
+            } else {
+                // Add new course
+                registry.push(course);
+            }
+            
+            // Save back to localStorage
+            localStorage.setItem('globalCourseRegistry', JSON.stringify(registry));
+            console.log('Course added to global registry:', course.code);
+        } catch (error) {
+            console.error('Error adding course to registry:', error);
+        }
     }
 
     //Report Export stuff. csv or txt
@@ -2161,6 +2300,372 @@ class InstructorDashboard {
         });
     }
 
+    // Navigation History Management
+    pushNavigationState(section, data = {}) {
+        this.navigationHistory.push({
+            section: section,
+            data: data,
+            timestamp: Date.now()
+        });
+        this.updateBackButton();
+    }
+
+    popNavigationState() {
+        if (this.navigationHistory.length > 1) {
+            this.navigationHistory.pop(); // Remove current
+            const previous = this.navigationHistory[this.navigationHistory.length - 1];
+            return previous;
+        }
+        return null;
+    }
+
+    updateBackButton() {
+        const backBtn = document.getElementById('back_btn');
+        if (backBtn) {
+            // Use requestAnimationFrame for immediate visual update
+            requestAnimationFrame(() => {
+                if (this.navigationHistory.length > 1) {
+                    backBtn.classList.remove('hidden');
+                } else {
+                    backBtn.classList.add('hidden');
+                }
+            });
+        }
+    }
+
+    handleBackButton() {
+        const previous = this.popNavigationState();
+        if (previous) {
+            this.switchSection(previous.section, false);
+            if (previous.data.courseId) {
+                this.currentCourse = this.courses.find(c => c.id === previous.data.courseId);
+            }
+        }
+    }
+
+    // Student Management Functions
+    openManageStudentsModal() {
+        if (!this.currentCourse) {
+            this.showToast('Please select a course first');
+            return;
+        }
+
+        const modal = document.getElementById('manage_students_modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            this.loadPendingStudents();
+            this.loadEnrolledStudents();
+            this.setupManageStudentsTabs();
+        }
+    }
+
+    closeManageStudentsModal() {
+        const modal = document.getElementById('manage_students_modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+        this.renderStudentsTable(this.currentCourse.id);
+    }
+
+    setupManageStudentsTabs() {
+        const tabBtns = document.querySelectorAll('.manage_students_tabs .tab_btn');
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                tabBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                const tab = btn.dataset.tab;
+                document.querySelectorAll('.tab_content').forEach(content => {
+                    content.classList.remove('active');
+                });
+                document.getElementById(`${tab}_students_tab`).classList.add('active');
+            });
+        });
+
+        // Setup manual add form
+        const manualForm = document.getElementById('manual_student_form');
+        if (manualForm) {
+            manualForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.addStudentManually();
+            });
+        }
+    }
+
+    showAddMethod(method) {
+        document.querySelectorAll('.add_method_content').forEach(el => el.classList.add('hidden'));
+        document.getElementById(`${method}_add`).classList.remove('hidden');
+    }
+
+    addStudentManually() {
+        const studentId = document.getElementById('manual_student_id').value.trim();
+        const firstName = document.getElementById('manual_first_name').value.trim();
+        const lastName = document.getElementById('manual_last_name').value.trim();
+        const email = document.getElementById('manual_email').value.trim();
+
+        if (!studentId || !firstName || !lastName || !email) {
+            this.showToast('Please fill in all fields');
+            return;
+        }
+
+        // Check if student already exists
+        let student = this.students.find(s => s.universityId === studentId);
+        
+        if (!student) {
+            // Create new student
+            student = {
+                id: 'student_' + Date.now(),
+                universityId: studentId,
+                firstName: firstName,
+                lastName: lastName,
+                email: email,
+                courses: [this.currentCourse.id]
+            };
+            this.students.push(student);
+        } else {
+            // Add course to existing student
+            if (!student.courses) student.courses = [];
+            if (!student.courses.includes(this.currentCourse.id)) {
+                student.courses.push(this.currentCourse.id);
+            } else {
+                this.showToast('Student already enrolled in this course');
+                return;
+            }
+        }
+
+        this.showToast(`Added ${firstName} ${lastName} to ${this.currentCourse.code}`);
+        document.getElementById('manual_student_form').reset();
+        this.loadEnrolledStudents();
+        this.renderStudentsTable(this.currentCourse.id);
+        this.saveAppState();
+    }
+
+    importStudentList() {
+        const textarea = document.getElementById('import_textarea');
+        const lines = textarea.value.split('\n').filter(line => line.trim());
+
+        let added = 0;
+        let skipped = 0;
+
+        lines.forEach(line => {
+            const parts = line.split(',').map(p => p.trim());
+            if (parts.length >= 4) {
+                const [studentId, firstName, lastName, email] = parts;
+                
+                let student = this.students.find(s => s.universityId === studentId);
+                
+                if (!student) {
+                    student = {
+                        id: 'student_' + Date.now() + '_' + Math.random(),
+                        universityId: studentId,
+                        firstName: firstName,
+                        lastName: lastName,
+                        email: email,
+                        courses: [this.currentCourse.id]
+                    };
+                    this.students.push(student);
+                    added++;
+                } else {
+                    if (!student.courses) student.courses = [];
+                    if (!student.courses.includes(this.currentCourse.id)) {
+                        student.courses.push(this.currentCourse.id);
+                        added++;
+                    } else {
+                        skipped++;
+                    }
+                }
+            }
+        });
+
+        this.showToast(`Imported ${added} students${skipped > 0 ? `, skipped ${skipped} duplicates` : ''}`);
+        textarea.value = '';
+        this.loadEnrolledStudents();
+        this.renderStudentsTable(this.currentCourse.id);
+        this.saveAppState();
+    }
+
+    loadPendingStudents() {
+        const courseId = this.currentCourse.id;
+        
+        // Load from localStorage
+        let pending = [];
+        try {
+            const allPending = JSON.parse(localStorage.getItem('pendingStudents') || '{}');
+            pending = allPending[courseId] || [];
+        } catch (error) {
+            console.error('Error loading pending students:', error);
+        }
+        
+        // Also check the in-memory map (for backwards compatibility)
+        const memoryPending = this.pendingStudents.get(courseId) || [];
+        
+        // Merge both sources (remove duplicates by student id)
+        const mergedMap = new Map();
+        [...pending, ...memoryPending].forEach(student => {
+            mergedMap.set(student.id, student);
+        });
+        pending = Array.from(mergedMap.values());
+        
+        document.getElementById('pending_count').textContent = pending.length;
+        
+        const container = document.getElementById('pending_students_list');
+        if (pending.length === 0) {
+            container.innerHTML = '<div class="empty_message">No pending students</div>';
+        } else {
+            container.innerHTML = pending.map(student => `
+                <div class="pending_student_item">
+                    <div class="student_info">
+                        <div class="student_name">${this.escapeHtml(student.firstName)} ${this.escapeHtml(student.lastName)}</div>
+                        <div class="student_details">${this.escapeHtml(student.universityId)} • ${this.escapeHtml(student.email)}</div>
+                    </div>
+                    <button class="btn btn_primary btn_small" onclick="instructorDashboard.approvePendingStudent('${student.id}')">
+                        <i class="fas fa-check"></i>
+                        Approve
+                    </button>
+                </div>
+            `).join('');
+        }
+    }
+
+    approvePendingStudent(studentId) {
+        const courseId = this.currentCourse.id;
+        
+        // Load pending students from localStorage
+        let allPending = {};
+        try {
+            allPending = JSON.parse(localStorage.getItem('pendingStudents') || '{}');
+        } catch (error) {
+            console.error('Error loading pending students:', error);
+        }
+        
+        const pending = allPending[courseId] || [];
+        const studentIndex = pending.findIndex(s => s.id === studentId);
+        
+        if (studentIndex !== -1) {
+            const pendingStudent = pending[studentIndex];
+            
+            console.log('Approving pending student:', pendingStudent);
+            
+            // IMPORTANT: Match by email or universityId, NOT by ID
+            // This prevents conflicts between test data and real students
+            let existingStudent = this.students.find(s => 
+                s.email === pendingStudent.email || 
+                s.universityId === pendingStudent.universityId
+            );
+            
+            if (existingStudent) {
+                console.log('Found existing student by email/universityId:', existingStudent);
+                
+                // Update the existing student's info with pending student's info
+                // This ensures the correct name is used
+                existingStudent.firstName = pendingStudent.firstName;
+                existingStudent.lastName = pendingStudent.lastName;
+                existingStudent.email = pendingStudent.email;
+                existingStudent.universityId = pendingStudent.universityId;
+                
+                // Add the course if not already enrolled
+                if (!existingStudent.courses) existingStudent.courses = [];
+                if (!existingStudent.courses.includes(courseId)) {
+                    existingStudent.courses.push(courseId);
+                }
+                
+                console.log('Updated existing student:', existingStudent);
+            } else {
+                console.log('Creating new student record');
+                // Create new student record with the EXACT info from pending
+                existingStudent = {
+                    id: pendingStudent.id,
+                    universityId: pendingStudent.universityId,
+                    firstName: pendingStudent.firstName,
+                    lastName: pendingStudent.lastName,
+                    email: pendingStudent.email,
+                    courses: [courseId]
+                };
+                this.students.push(existingStudent);
+                console.log('Created new student:', existingStudent);
+            }
+            
+            // Remove from pending list
+            pending.splice(studentIndex, 1);
+            allPending[courseId] = pending;
+            
+            // Save back to localStorage
+            try {
+                localStorage.setItem('pendingStudents', JSON.stringify(allPending));
+            } catch (error) {
+                console.error('Error saving pending students:', error);
+            }
+            
+            // Also update in-memory map
+            this.pendingStudents.set(courseId, pending);
+            
+            this.showToast(`Approved ${pendingStudent.firstName} ${pendingStudent.lastName}`);
+            this.loadPendingStudents();
+            this.loadEnrolledStudents();
+            this.renderStudentsTable(courseId);
+            this.saveAppState();
+        }
+    }
+
+    loadEnrolledStudents() {
+        const courseStudents = this.getStudentsForCourse(this.currentCourse.id);
+        const container = document.getElementById('enrolled_students_list');
+        
+        if (courseStudents.length === 0) {
+            container.innerHTML = '<div class="empty_message">No students enrolled</div>';
+        } else {
+            container.innerHTML = courseStudents.map(student => {
+                const attendanceRate = this.calculateStudentAttendanceRate(student.id, this.currentCourse.id);
+                return `
+                    <div class="enrolled_student_item">
+                        <div class="student_info">
+                            <div class="student_name">${this.escapeHtml(student.firstName)} ${this.escapeHtml(student.lastName)}</div>
+                            <div class="student_details">${this.escapeHtml(student.universityId)} • ${this.escapeHtml(student.email)}</div>
+                            <div class="student_stats">Attendance: ${attendanceRate}%</div>
+                        </div>
+                        <button class="btn btn_danger btn_small" onclick="instructorDashboard.removeStudentFromCourse('${student.id}')">
+                            <i class="fas fa-times"></i>
+                            Remove
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    removeStudentFromCourse(studentId) {
+        const student = this.students.find(s => s.id === studentId);
+        if (!student) return;
+
+        if (confirm(`Remove ${student.firstName} ${student.lastName} from ${this.currentCourse.code}?`)) {
+            if (student.courses) {
+                student.courses = student.courses.filter(cid => cid !== this.currentCourse.id);
+            }
+            
+            this.showToast(`Removed ${student.firstName} ${student.lastName}`);
+            this.loadEnrolledStudents();
+            this.renderStudentsTable(this.currentCourse.id);
+            this.saveAppState();
+        }
+    }
+
+    calculateStudentAttendanceRate(studentId, courseId) {
+        const courseSessions = this.sessions.filter(s => s.courseId === courseId && s.status === 'completed');
+        if (courseSessions.length === 0) return 0;
+
+        let presentCount = 0;
+        courseSessions.forEach(session => {
+            if (session.attendance) {
+                const record = session.attendance.find(a => a.studentId === studentId);
+                if (record && record.status !== 'ABSENT') {
+                    presentCount++;
+                }
+            }
+        });
+
+        return Math.round((presentCount / courseSessions.length) * 100);
+    }
+
     initializeEnhancedStyles() {
         this.enhanceSessionStyles();
     }
@@ -2377,6 +2882,57 @@ function deleteCourse(courseId) {
         console.error('Error deleting course:', e); 
         alert('Error deleting course. Please check console.');
     }
+}
+
+function openManageStudentsModal() {
+    try {
+        if (window.instructorDashboard) {
+            window.instructorDashboard.openManageStudentsModal();
+        }
+    } catch(e) {
+        console.error('Error opening manage students modal:', e);
+    }
+}
+
+function closeManageStudentsModal() {
+    try {
+        if (window.instructorDashboard) {
+            window.instructorDashboard.closeManageStudentsModal();
+        }
+    } catch(e) {
+        console.error('Error closing manage students modal:', e);
+    }
+}
+
+function showAddMethod(method) {
+    try {
+        if (window.instructorDashboard) {
+            window.instructorDashboard.showAddMethod(method);
+        }
+    } catch(e) {
+        console.error('Error showing add method:', e);
+    }
+}
+
+function importStudentList() {
+    try {
+        if (window.instructorDashboard) {
+            window.instructorDashboard.importStudentList();
+        }
+    } catch(e) {
+        console.error('Error importing student list:', e);
+    }
+}
+
+function filterStudents() {
+    const searchInput = document.getElementById('student_search');
+    const filter = searchInput.value.toLowerCase();
+    const items = document.querySelectorAll('.enrolled_student_item');
+    
+    items.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        item.style.display = text.includes(filter) ? '' : 'none';
+    });
 }
 
 // Enhanced initialization with comprehensive error handling

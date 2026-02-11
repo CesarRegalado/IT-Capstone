@@ -1,4 +1,4 @@
-// Comprehensive Test Data for Instructor Dashboard
+// Test Data for Instructor Dashboard
 const INSTRUCTOR_TEST_DATA = {
     user: {
         id: 'fac_001',

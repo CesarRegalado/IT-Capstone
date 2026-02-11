@@ -10,6 +10,7 @@
     
     <!-- CSS with proper path -->
     <link rel="stylesheet" href="instructor.css">
+    <link rel="stylesheet" href="instructor-enhancements.css">
     
     <!-- PWA Manifest -->
     <link rel="manifest" href="../manifest.json">
@@ -29,6 +30,9 @@
     <!-- Fixed Header -->
     <header class="main_header">
         <div class="header_left">
+            <button class="back_btn hidden" id="back_btn">
+                <i class="fas fa-arrow-left"></i>
+            </button>
             <button class="hamburger_menu">
                 <i class="fas fa-bars"></i>
             </button>
@@ -128,7 +132,23 @@
                 
                 <!-- Students List -->
                 <div class="students_section">
-                    <h3>Students</h3>
+                    <div class="students_header">
+                        <h3>Students</h3>
+                        <button class="btn btn_primary" onclick="openManageStudentsModal()">
+                            <i class="fas fa-user-plus"></i>
+                            Add/Remove Students
+                        </button>
+                    </div>
+                    <div class="students_stats">
+                        <div class="stat_item">
+                            <span class="stat_label">Total Enrolled:</span>
+                            <span class="stat_value" id="total_enrolled">0</span>
+                        </div>
+                        <div class="stat_item">
+                            <span class="stat_label">Average Attendance:</span>
+                            <span class="stat_value" id="avg_attendance">0%</span>
+                        </div>
+                    </div>
                     <div class="students_table">
                         <table>
                             <thead>
@@ -136,6 +156,7 @@
                                     <th>Student ID</th>
                                     <th>Name</th>
                                     <th>Email</th>
+                                    <th>Attendance Rate</th>
                                     <th>Current Status</th>
                                     <th>Actions</th>
                                 </tr>
@@ -245,6 +266,111 @@
                             <button type="submit" class="btn btn_primary" id="course_modal_submit">Add Course</button>
                         </div>
                     </form>
+                </div>
+            </div>
+
+            <!-- Manage Students Modal -->
+            <div id="manage_students_modal" class="modal hidden">
+                <div class="modal_content large_modal">
+                    <div class="modal_header">
+                        <h3 class="modal_title">Manage Students</h3>
+                        <button class="close_modal" onclick="closeManageStudentsModal()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal_body">
+                        <div class="manage_students_tabs">
+                            <button class="tab_btn active" data-tab="add">
+                                <i class="fas fa-user-plus"></i>
+                                Add Students
+                            </button>
+                            <button class="tab_btn" data-tab="remove">
+                                <i class="fas fa-user-minus"></i>
+                                Remove Students
+                            </button>
+                        </div>
+
+                        <!-- Add Students Tab -->
+                        <div class="tab_content active" id="add_students_tab">
+                            <div class="add_methods">
+                                <button class="method_btn" onclick="showAddMethod('manual')">
+                                    <i class="fas fa-keyboard"></i>
+                                    <span>Add Manually</span>
+                                </button>
+                                <button class="method_btn" onclick="showAddMethod('import')">
+                                    <i class="fas fa-file-upload"></i>
+                                    <span>Import List</span>
+                                </button>
+                                <button class="method_btn" onclick="showAddMethod('pending')">
+                                    <i class="fas fa-users"></i>
+                                    <span>From Pending (<span id="pending_count">0</span>)</span>
+                                </button>
+                            </div>
+
+                            <!-- Manual Add -->
+                            <div class="add_method_content hidden" id="manual_add">
+                                <h4>Add Student Manually</h4>
+                                <form id="manual_student_form">
+                                    <div class="form_row">
+                                        <div class="form_group">
+                                            <label>Student ID</label>
+                                            <input type="text" id="manual_student_id" placeholder="e.g., S12345" required>
+                                        </div>
+                                        <div class="form_group">
+                                            <label>First Name</label>
+                                            <input type="text" id="manual_first_name" placeholder="First Name" required>
+                                        </div>
+                                    </div>
+                                    <div class="form_row">
+                                        <div class="form_group">
+                                            <label>Last Name</label>
+                                            <input type="text" id="manual_last_name" placeholder="Last Name" required>
+                                        </div>
+                                        <div class="form_group">
+                                            <label>Email</label>
+                                            <input type="email" id="manual_email" placeholder="student@university.edu" required>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn_primary">
+                                        <i class="fas fa-plus"></i>
+                                        Add Student
+                                    </button>
+                                </form>
+                            </div>
+
+                            <!-- Import List -->
+                            <div class="add_method_content hidden" id="import_add">
+                                <h4>Import Student List</h4>
+                                <p class="help_text">Paste student data (one per line): StudentID, FirstName, LastName, Email</p>
+                                <textarea id="import_textarea" placeholder="S12345, John, Doe, john.doe@university.edu&#10;S12346, Jane, Smith, jane.smith@university.edu" rows="8"></textarea>
+                                <button class="btn btn_primary" onclick="importStudentList()">
+                                    <i class="fas fa-upload"></i>
+                                    Import Students
+                                </button>
+                            </div>
+
+                            <!-- Pending Students -->
+                            <div class="add_method_content hidden" id="pending_add">
+                                <h4>Students Who Added This Course</h4>
+                                <p class="help_text">These students used the course code to join</p>
+                                <div id="pending_students_list" class="pending_list">
+                                    <!-- Populated by JS -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Remove Students Tab -->
+                        <div class="tab_content" id="remove_students_tab">
+                            <h4>Enrolled Students</h4>
+                            <div class="search_box">
+                                <input type="text" id="student_search" placeholder="Search students..." onkeyup="filterStudents()">
+                                <i class="fas fa-search"></i>
+                            </div>
+                            <div id="enrolled_students_list" class="enrolled_list">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </main>
