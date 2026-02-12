@@ -1,4 +1,7 @@
+import User from './classes/users.js'; // adjust path if needed
+import { testDB } from './classes/testDB.js';
 // Shared authentication utilities
+<<<<<<< Updated upstream:AttendanceTrackerDraft/shared-auth.js
 class AuthUtils {
     static SECURITY_CONFIG = {
         minPasswordLength: 8,
@@ -8,6 +11,9 @@ class AuthUtils {
     };
 
     // Validation functions
+=======
+export default class AuthUtils {
+>>>>>>> Stashed changes:AT Draft 2.1/shared-auth.js
     static validateEmail(email) {
         const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         return re.test(email) && email.length <= 254;
@@ -134,4 +140,46 @@ class AuthUtils {
         }
         return hash.toString();
     }
+<<<<<<< Updated upstream:AttendanceTrackerDraft/shared-auth.js
 }
+=======
+
+    // Find user in both student and instructor databases
+    static async findUserByEmail(email) {
+        return testDB.usersArr.find(user => user.UNTemail === email) || null;
+    }
+
+    // Verify password (demo with hash)
+    static async verifyPassword(inputPassword, storedHash) {
+        const inputHash = this.hashPassword(inputPassword);
+        return inputHash === storedHash;
+    }
+
+    // Handle successful login and redirect
+    static handleSuccessfulLogin(user) {
+        console.log('User authenticated successfully:', user);
+        try {
+            // Store user session based on role
+            if (user.role === 'instructor') {
+                sessionStorage.setItem('currentInstructor', JSON.stringify(user));
+                this.showToast(`Welcome, Professor ${user.lastName}!`, 'success');
+                user.userLogin();
+            } else if (user.role === 'student') {
+                sessionStorage.setItem('currentStudent', JSON.stringify(user));
+                this.showToast(`Welcome, ${user.firstName}!`, 'success');
+                user.userLogin();
+            } else {
+                this.showToast('Unknown user role', 'error');
+                return false;
+            }
+            
+            return true;
+            
+        } catch (error) {
+            console.error('Login redirect error:', error);
+            this.showToast('Login failed', 'error');
+            return false;
+        }
+    }
+}  // <-- This closes the AuthUtils class
+>>>>>>> Stashed changes:AT Draft 2.1/shared-auth.js

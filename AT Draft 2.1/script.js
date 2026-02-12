@@ -1,9 +1,10 @@
-// User database EX.
-window.USER_DATABASE = {
-    students: new Map(),
-    instructors: new Map()
-};
+import { User, Instructor, Student, Course, Session, qrcode } from './classes/index.js';
+import AuthUtils from './shared-auth.js';
+import "./student_test_data.js";
+import { testDB } from './classes/testDB.js';
 
+
+//switches between login and register forms, also clears errors when switching
 function initializeFormToggle() {
     const loginToggle = document.getElementById('login_toggle');
     const registerToggle = document.getElementById('register_toggle');
@@ -43,6 +44,7 @@ function initializeServiceWorker() {
     }
 }
 
+// PWA Install Prompt Handling
 function initializePWAInstall() {
     const installBtn = document.getElementById('install_btn');
     let deferredPrompt;
@@ -86,113 +88,21 @@ function initializePWAInstall() {
     });
 }
 
+//FIXME: This should be implemented to check DATABASE and then replace current
+//       authentication method in loginFormHandler()
 function authenticateUser(email, password) {
-    console.log('Authenticating:', email);
-    console.log('Database contents:', Array.from(USER_DATABASE.students.keys()));
-    
-    for (const db of Object.values(USER_DATABASE)) {
-        const user = db.get(email);
-        if (user) {
-            console.log('Found user:', user);
-            console.log('Stored hash:', user.password);
-            console.log('Input hash:', AuthUtils.hashPassword(password));
-        }
-        if (user && user.password === AuthUtils.hashPassword(password)) {
-            return user;
-        }
-    }
-    return null;
+    // This is a placeholder function. Replace with actual authentication logic that checks DATABASE.
 }
 
+// FIXME: This is currently checking the testDB instead of DATABASE
 function isEmailRegistered(email) {
-    return USER_DATABASE.students.has(email) || USER_DATABASE.instructors.has(email);
+    return testDB.usersArr.some(user => user.UNTemail === email);
 }
 
-function registerUser(userData) {
-    const db = userData.role === 'student' ? USER_DATABASE.students : USER_DATABASE.instructors;
-    const user = {
-        ...userData,
-        password: AuthUtils.hashPassword(userData.password),
-        createdAt: new Date().toISOString()
-    };
-    db.set(userData.email, user);
-    console.log('Registered user:', user);
-    console.log('Database after registration:', Array.from(USER_DATABASE.students.keys()));
-}
-
-function initializeFormHandlers() {
-    const loginForm = document.getElementById('login_form');
+// Handles registration form submission
+function initializeRegisterFormHandler() {
     const registerForm = document.getElementById('register_form');
-    
-    // Real-time validation for login
-    document.getElementById('login_email').addEventListener('blur', function() {
-        const email = this.value.trim();
-        if (email && !AuthUtils.validateEmail(email)) {
-            AuthUtils.showError('login_email', 'Please enter a valid email address');
-        } else {
-            AuthUtils.clearError('login_email');
-        }
-    });
-    
-    // Real-time validation for register
-    document.getElementById('register_email').addEventListener('blur', function() {
-        const email = this.value.trim();
-        if (email && !AuthUtils.validateEmail(email)) {
-            AuthUtils.showError('register_email', 'Please enter a valid email address');
-        } else if (email && isEmailRegistered(email)) {
-            AuthUtils.showError('register_email', 'Email is already registered');
-        } else {
-            AuthUtils.clearError('register_email');
-        }
-    });
-    
-    // Login form
-    loginForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const loginBtn = document.getElementById('login_btn');
-        const email = document.getElementById('login_email').value.trim();
-        const password = document.getElementById('login_password').value;
-        
-        console.log('Login attempt:', { email, password });
-        
-        // Validation
-        let isValid = true;
-        if (!email || !AuthUtils.validateEmail(email)) {
-            AuthUtils.showError('login_email', 'Valid email is required');
-            isValid = false;
-        }
-        if (!password) {
-            AuthUtils.showError('login_password', 'Password is required');
-            isValid = false;
-        }
-        if (!isValid) return;
-        
-        AuthUtils.setButtonLoading(loginBtn, true);
-        
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        const user = authenticateUser(email, password);
-        console.log('Authentication result:', user);
-        
-        if (user) {
-            AuthUtils.showToast(`Welcome back, ${user.firstName}!`, 'success');
-            
-            sessionStorage.setItem('currentUser', JSON.stringify({
-                ...user,
-                loginTime: Date.now()
-            }));
-            
-            setTimeout(() => {
-                window.location.href = user.role === 'student' ? 'student-dashboard/student.html' : 'instructor.html';
-            }, 1000);
-        } else {
-            AuthUtils.showToast('Invalid email or password.', 'error');
-            AuthUtils.setButtonLoading(loginBtn, false);
-        }
-    });
-    
-    // Register form
+
     registerForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const registerBtn = document.getElementById('register_btn');
@@ -204,9 +114,7 @@ function initializeFormHandlers() {
             password: document.getElementById('register_password').value,
             confirmPassword: document.getElementById('confirm_password').value
         };
-        
-        console.log('Registration attempt:', formData);
-        
+                
         // Validation
         let isValid = true;
         if (!formData.role) {
@@ -240,11 +148,18 @@ function initializeFormHandlers() {
         
         AuthUtils.setButtonLoading(registerBtn, true);
         
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        const newUser = new User(
+            formData.userId,
+            formData.firstName,
+            formData.lastName,
+            formData.email,
+            formData.role,
+            AuthUtils.hashPassword(formData.password)
+        );
         
-        registerUser(formData);
-        
+        newUser.registerUser();
+
         AuthUtils.showToast(`Account created successfully! Welcome, ${formData.firstName}.`, 'success');
         
         setTimeout(() => {
@@ -256,8 +171,79 @@ function initializeFormHandlers() {
                 loginTime: Date.now()
             }));
             
-            window.location.href = formData.role === 'student' ? 'student-dashboard/student.html' : 'instructor.html';
+            window.location.href = formData.role === 'student' ? 'student-dashboard/student.html' : 'instructor-dashboard/instructor.html';
         }, 1000);
+    });
+            
+}
+
+// Handles login form submission and live validation
+function initializeLoginFormHandler() {
+    const loginForm = document.getElementById('login_form');
+    
+    // Real-time validation for login
+    document.getElementById('login_email').addEventListener('blur', function() {
+        const email = this.value.trim();
+        if (email && !AuthUtils.validateEmail(email)) {
+            AuthUtils.showError('login_email', 'Please enter a valid email address');
+        } else {
+            AuthUtils.clearError('login_email');
+        }
+    });
+        
+    // Login form - UPDATED VERSION
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const loginBtn = document.getElementById('login_btn');
+        const email = document.getElementById('login_email').value.trim();
+        const password = document.getElementById('login_password').value;
+        
+        console.log('Login attempt:', { email, password });
+        
+        AuthUtils.setButtonLoading(loginBtn, true);
+        
+        try {
+            // Validate inputs
+            if (!AuthUtils.validateEmail(email)) {
+                AuthUtils.showToast('Please enter a valid email address', 'error');
+                return;
+            }
+
+            if (!AuthUtils.validatePassword(password)) {
+                AuthUtils.showToast('Password must be at least 8 characters', 'error');
+                return;
+            }
+
+            // FIXME: When DATABASE is implemented, replace this with authenticateUser()
+            //        that checks DATABASE. 
+            if (isEmailRegistered(email)) {
+                const userData = await AuthUtils.findUserByEmail(email);
+                console.log('User data retrieved for login:', userData);
+                const isPasswordValid = await AuthUtils.verifyPassword(password, userData.password);
+                if (!isPasswordValid) {
+                    AuthUtils.showToast('Invalid password', 'error');
+                    return;
+                }
+                const currentUser = new User(
+                    userData.userId,
+                    userData.firstName,
+                    userData.lastName,
+                    userData.UNTemail,
+                    userData.role,
+                    userData.password
+                );
+                //This is used for the .showToast() and redirect to dashboard in User.userLogin()
+                AuthUtils.handleSuccessfulLogin(currentUser);
+            } else {
+                AuthUtils.showToast('Email not found. Please register first.', 'error');
+                return;
+            }            
+        } catch (error) {
+            console.error('Login error:', error);
+            AuthUtils.showToast('Login failed', 'error');
+        } finally {
+            AuthUtils.setButtonLoading(loginBtn, false);
+        }
     });
 }
 
@@ -272,7 +258,7 @@ function initializePasskeyAuth() {
         return;
     }
 
-    // Passkey Login
+    // Passkey Login. REMOVE 
     passkeyLoginBtn.addEventListener('click', async () => {
         try {
             AuthUtils.showToast('Attempting passkey login...', 'info');
@@ -308,7 +294,7 @@ function initializePasskeyAuth() {
                 } else {
                     reject(new Error('No passkey found'));
                 }
-            }, 1000);
+            }, );
         });
     }
 }
@@ -320,7 +306,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize Service Worker
     initializeServiceWorker();
     
-    // TEST USER. DELETE BEFORE FINISHING APP. pls
+    /*/ TEST USER. DELETE BEFORE FINISHING APP. pls
     if (!USER_DATABASE.students.has('undergraduate.student@student.edu')) {
         USER_DATABASE.students.set('undergraduate.student@student.edu', {
             firstName: 'Undergraduate',
@@ -333,15 +319,29 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Test student added during initialization');
     }
     
-    console.log('Final database state:', Array.from(USER_DATABASE.students.keys()));
+    // TEST INSTRUCTOR. DELETE BEFORE FINISHING APP.
+    if (!USER_DATABASE.instructors.has('instructor@university.edu')) {
+        USER_DATABASE.instructors.set('instructor@university.edu', {
+            firstName: 'John',
+            lastName: 'Doe',
+            email: 'instructor@university.edu',
+            role: 'instructor',
+            password: AuthUtils.hashPassword('password123'),
+            createdAt: new Date().toISOString()
+        });
+        console.log('Test instructor added during initialization');
+    }
+    
+    console.log('Final database state:', Array.from(USER_DATABASE.students.keys()));*/
     
     initializeFormToggle();
     initializePWAInstall();
     initializePasskeyAuth();
     AuthUtils.initializePasswordToggles();
-    initializeFormHandlers();
+    initializeRegisterFormHandler();
+    initializeLoginFormHandler();
     
     // Auto-fill test credentials for easier testing. REMOVE BEFORE FINISHING
-    document.getElementById('login_email').value = 'undergraduate.student@student.edu';
-    document.getElementById('login_password').value = 'password123';
+    //document.getElementById('login_email').value = 'undergraduate.student@student.edu';
+    //document.getElementById('login_password').value = 'password123';
 });

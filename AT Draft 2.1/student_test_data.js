@@ -1,5 +1,6 @@
+import AuthUtils from './shared-auth.js';
 // Test Data for Student Login
-const STUDENT_TEST_DATA = {
+export const STUDENT_TEST_DATA = {
     user: {
         id: 'stu_001',
         universityId: 'S12345678',
@@ -118,7 +119,7 @@ const STUDENT_TEST_DATA = {
     ]
 };
 
-// Initialize USER_DATABASE after DOM is loaded
+/*/ Initialize USER_DATABASE after DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
     // Ensure USER_DATABASE exists
     if (typeof window.USER_DATABASE === 'undefined') {
@@ -139,4 +140,4 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     console.log('Test student added to database');
-});
+});*/

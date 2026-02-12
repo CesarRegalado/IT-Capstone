@@ -116,8 +116,8 @@
                         </button>
                     </div>
                     <div class="scanner_container">
-                        <i class="fas fa-camera fa-3x"></i>
-                        <p>Camera would activate here</p>
+                        <video id="qr_video" autoplay playsinline></video>
+                        <canvas id="qr_canvas" hidden></canvas>
                     </div>
                     <p style="text-align: center; color: #666;">
                         Position the QR code within the frame to scan
@@ -178,7 +178,7 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
-    <script src="../student_test_data.js"></script>
-    <script src="student.js"></script>
-</body>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
+    <script type="module" src="../student_test_data.js"></script>
+    <script type="module" src="student.js"></script>
 </html>

@@ -1,9 +1,14 @@
+import {User, Student, Instructor, Course, Session, Attendance, qrcode} from "../classes/index.js";
+import { testDB } from '../classes/testDB.js';
+
 // Student Dashboard Functionality
 class StudentDashboard {
     constructor() {
-        this.currentUser = null;
+        this.currentUser = new Student();
+        this.instructors = [];
         this.courses = [];
         this.sessions = [];
+        this.qrCodes = [];
         this.attendance = [];
         
         console.log('StudentDashboard: Initializing...');
@@ -12,17 +17,24 @@ class StudentDashboard {
 
     async initializeApp() {
         // Load user from session storage (set during login)
-        const userData = sessionStorage.getItem('currentUser');
-        
+        const userData = sessionStorage.getItem('currentStudent');
+        //FIXME: We should ideally fetch this data from an API or database, 
+        //       but for demo purposes we'll use testDB
         if (!userData) {
             console.log('No user session found, loading demo data...');
-            // For demo purposes, load test data directly
             this.loadTestData();
         } else {
-            this.currentUser = JSON.parse(userData);
-            // In real app, you'd fetch data from API based on user
-            // For now, we'll use test data
-            this.loadTestData();
+            const currentUser = JSON.parse(userData);
+            const student = testDB.usersArr.find(u => u.UNTemail === currentUser.UNTemail);
+            if (student) {
+                this.currentUser = student;
+                console.log('Loaded user from session:', this.currentUser);
+                // FIXME: this loads test data based on the current user, 
+                //        in a real app this would be fetched from an API
+                this.loadTestData();
+            } else {
+                console.warn('User from session not found in database, loading demo data...');
+            }
         }
         
         // Update UI
@@ -38,49 +50,52 @@ class StudentDashboard {
         
         console.log('StudentDashboard: Ready!');
     }
-
+    // For demo purposes, this function loads test data from the testDB based on the current user.
+    // FIXME: this should be replaced with loadDataFromAPI() that fetches real data from a backend service.
     loadTestData() {
-        // Use the test data from the main app
-        if (typeof STUDENT_TEST_DATA !== 'undefined') {
-            this.currentUser = STUDENT_TEST_DATA.user;
-            this.courses = STUDENT_TEST_DATA.courses;
-            this.sessions = STUDENT_TEST_DATA.sessions;
-            this.attendance = STUDENT_TEST_DATA.attendance;
-        } else {
-            // Fallback to local test data
-            this.currentUser = {
-                firstName: 'Undergraduate',
-                lastName: 'Student',
-                email: 'undergraduate.student@student.edu'
-            };
-            this.courses = [
-                {
-                    id: 'course_001',
-                    code: 'MATH101',
-                    title: 'Calculus I',
-                    semester: 'Fall 2024',
-                    faculty: { firstName: 'Sarah', lastName: 'Smith' }
-                },
-                {
-                    id: 'course_002', 
-                    code: 'PHYS102',
-                    title: 'Physics I',
-                    semester: 'Fall 2024',
-                    faculty: { firstName: 'Michael', lastName: 'Johnson' }
-                }
-            ];
-            this.attendance = [
-                {
-                    session: {
-                        course: { code: 'MATH101', title: 'Calculus I' },
-                        startsAt: '2024-10-15T10:00:00Z'
-                    },
-                    status: 'PRESENT'
-                }
-            ];
+        console.log('Loading test data for student dashboard...');
+        for (const course of this.currentUser.coursesEnrolled) {
+            const courseObj = testDB.coursesArr.filter(c => c.courseId === course);
+            if (courseObj && courseObj.length > 0) {
+                this.courses.push(courseObj[0]);
+            }
         }
-        
-        console.log('Loaded:', this.courses.length, 'courses');
+
+        for (const course of this.courses) {
+            const instrusctorObj = testDB.usersArr.filter(i => i.instructorId === course.instructorID);
+            if (instrusctorObj && instrusctorObj.length > 0) {
+                this.instructors.push(...instrusctorObj);
+            }
+        }
+
+        for (const course of this.courses) {
+            const sessionObj = testDB.sessionsArr.filter(c => c.courseId === course.courseId);
+            if (sessionObj && sessionObj.length > 0) {
+                this.sessions.push(...sessionObj);
+            }
+        }
+
+        for (const session of this.sessions) {
+            const qrObj = testDB.qrcodesArr.filter(q => q.sessionId === session.sessionId);
+            if (qrObj && qrObj.length > 0) {
+                this.qrCodes.push(...qrObj);
+            }
+        }
+
+        for (const code of this.qrCodes) {
+            const attendanceObj = testDB.attendanceArr.filter(a => a.code === code.code);
+            if (attendanceObj && attendanceObj.length > 0) {
+                this.attendance.push(...attendanceObj);
+            }
+        }
+
+        console.log('Test data loaded:', {
+            courses: this.courses,
+            instructors: this.instructors,
+            sessions: this.sessions,
+            qrCodes: this.qrCodes,
+            attendance: this.attendance
+        });        
     }
 
     initializeNavigation() {
@@ -164,7 +179,8 @@ class StudentDashboard {
         this.renderAttendanceOverview();
         this.renderAttendanceDetails();
     }
-
+    
+    // Render the courses the student is enrolled in, along with attendance percentage and check-in options
     renderCourses() {
         const container = document.getElementById('classes_container');
         
@@ -181,43 +197,45 @@ class StudentDashboard {
     }
 
     createCourseCard(course) {
-        // Calculate attendance for this course
-        const courseAttendance = this.attendance.filter(a => 
-            a.session.course.code === course.code
-        );
-        const presentCount = courseAttendance.filter(a => a.status === 'PRESENT').length;
-        const totalSessions = courseAttendance.length;
-        const attendancePercentage = totalSessions > 0 ? Math.round((presentCount / totalSessions) * 100) : 0;
+        //FIXME: This might change depending on what we want the Card to look like.
+        const sessionObj = this.sessions.filter(s => s.courseId === course.courseId);
+        const totalSessions = sessionObj.length; 
+        const qrObj = this.qrCodes.filter(q => sessionObj.some(s => s.sessionId === q.sessionId));
+        const attendanceObj = this.attendance.filter(a => qrObj.some(q => q.code === a.code));
+        const courseAttendance = attendanceObj.filter(a => a.sessionAttendance === 'PRESENT').length;
+        const attendancePercentage = totalSessions > 0 ? Math.round((courseAttendance / totalSessions) * 100) : 0;
         
-        const attendanceClass = attendancePercentage >= 90 ? 'excellent' : 
+        const attendanceStatus = attendancePercentage >= 90 ? 'excellent' : 
                               attendancePercentage >= 80 ? 'good' : 
                               attendancePercentage >= 70 ? 'warning' : 'poor';
+        const instructor = this.instructors.find(i => i.instructorId === course.instructorID);
         
-        // Find today's session for this course
-        const todaySession = this.sessions.find(s => s.courseId === course.id);
+        // FIXME: Need to implement logic to determine if there's a session today for this course 
+        //        and if the student has already checked in, to show appropriate check-in options and status on the card.
+        const todaySession = this.sessions.find(s => s.courseId === course.courseId);
         
         return `
-            <div class="class_card" data-course-id="${course.id}">
+            <div class="class_card" data-course-id="${course.courseId}">
                 <div class="class_header">
-                    <h3>${this.escapeHtml(course.title)}</h3>
-                    <span class="class_code">${this.escapeHtml(course.code)}</span>
+                    <h3>${this.escapeHtml(course.courseName)}</h3>
+                    <span class="class_code">${this.escapeHtml(course.courseId)}</span>
                 </div>
                 <div class="class_info">
-                    <p><i class="fas fa-user"></i> Prof. ${this.escapeHtml(course.faculty.lastName)}</p>
-                    <p><i class="fas fa-calendar"></i> ${this.escapeHtml(course.semester)}</p>
+                    <p><i class="fas fa-user"></i> Prof. ${this.escapeHtml(instructor.lastName)}</p>
+                    <p><i class="fas fa-calendar"></i> ${this.escapeHtml(course.weekDays)}</p>
                     ${todaySession ? `
-                        <p><i class="fas fa-clock"></i> Today at ${new Date(todaySession.startsAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                        <p><i class="fas fa-clock"></i>${course.startTime}</p>
                     ` : ''}
                 </div>
-                <div class="attendance_badge attendance_${attendanceClass}">
-                    ${attendancePercentage}% Attendance (${presentCount}/${totalSessions})
+                <div class="attendance_badge attendance_${attendanceStatus}">
+                    ${attendancePercentage}% Attendance (${courseAttendance}/${totalSessions})
                 </div>
                 <div class="class_actions">
-                    <button class="btn btn_primary btn_small" onclick="studentDashboard.checkInToCourse('${course.id}')">
+                    <button class="btn btn_primary btn_small" onclick="studentDashboard.checkInToCourse('${course.courseId}')">
                         <i class="fas fa-qrcode"></i>
                         Check In
                     </button>
-                    <button class="btn btn_secondary btn_small" onclick="studentDashboard.viewCourseDetails('${course.id}')">
+                    <button class="btn btn_secondary btn_small" onclick="studentDashboard.viewCourseDetails('${course.courseId}')">
                         <i class="fas fa-chart-bar"></i>
                         Details
                     </button>
@@ -227,15 +245,16 @@ class StudentDashboard {
     }
 
     renderAttendanceOverview() {
-        const present = this.attendance.filter(record => record.status === 'PRESENT').length;
-        const absent = this.attendance.filter(record => record.status === 'ABSENT').length;
-        const late = this.attendance.filter(record => record.status === 'LATE').length;
+        const present = this.attendance.filter(record => record.sessionAttendance === 'PRESENT').length;
+        const absent = this.attendance.filter(record => record.sessionAttendance === 'ABSENT').length;
+        const late = this.attendance.filter(record => record.sessionAttendance === 'LATE').length;
 
         this.updateUIElement('present_count', present.toString());
         this.updateUIElement('absent_count', absent.toString());
         this.updateUIElement('late_count', late.toString());
     }
-
+    // Render detailed attendance records for each course, 
+    // showing dates and status for each session attended.
     renderAttendanceDetails() {
         const container = document.getElementById('attendance_list');
         
@@ -244,51 +263,51 @@ class StudentDashboard {
             return;
         }
 
-        const byCourse = this.groupByCourse(this.attendance);
-        container.innerHTML = Object.keys(byCourse).map(courseCode => 
-            this.createCourseAttendanceSection(courseCode, byCourse[courseCode])
+        container.innerHTML = this.courses.map(course => 
+            this.createCourseAttendanceSection(course)
         ).join('');
     }
-
-    groupByCourse(records) {
-        return records.reduce((groups, record) => {
-            const courseCode = record.session.course.code;
-            if (!groups[courseCode]) {
-                groups[courseCode] = [];
-            }
-            groups[courseCode].push(record);
-            return groups;
-        }, {});
-    }
-
-    createCourseAttendanceSection(courseCode, courseRecords) {
-        const course = this.courses.find(c => c.code === courseCode);
-        const presentCount = courseRecords.filter(r => r.status === 'PRESENT').length;
-        const percentage = Math.round((presentCount / courseRecords.length) * 100);
-        const percentageClass = percentage >= 90 ? 'excellent' : percentage >= 80 ? 'good' : percentage >= 70 ? 'warning' : 'poor';
+    // This function creates the HTML for the attendance section of a specific course,
+    // showing the attendance percentage and a list of sessions with their respective attendance status.
+    createCourseAttendanceSection(course) {
+        //FIXME: This might want to be changed to show more details about each session,
+        //       or to pull data drom API.
+        const sessionObj = this.sessions.filter(s => s.courseId === course.courseId);
+        const totalSessions = sessionObj.length; 
+        const qrObj = this.qrCodes.filter(q => sessionObj.some(s => s.sessionId === q.sessionId));
+        const attendanceObj = this.attendance.filter(a => qrObj.some(q => q.code === a.code));
+        const courseAttendance = attendanceObj.filter(a => a.sessionAttendance === 'PRESENT').length;
+        const attendancePercentage = totalSessions > 0 ? Math.round((courseAttendance / totalSessions) * 100) : 0;
         
+        const attendanceStatus = attendancePercentage >= 90 ? 'excellent' : 
+                              attendancePercentage >= 80 ? 'good' : 
+                              attendancePercentage >= 70 ? 'warning' : 'poor';
+
         return `
             <div class="attendance_class">
                 <div class="class_summary">
-                    <h4>${this.escapeHtml(course.title)} (${courseCode})</h4>
-                    <span class="attendance_percentage attendance_${percentageClass}">
-                        ${percentage}%
+                    <h4>${this.escapeHtml(course.courseName)} (${course.courseId})</h4>
+                    <span class="attendance_percentage attendance_${attendanceStatus}">
+                        ${attendancePercentage}%
                     </span>
                 </div>
                 <div class="attendance_dates">
-                    ${courseRecords.slice(0, 8).map(record => this.createAttendanceDate(record)).join('')}
-                    ${courseRecords.length > 8 ? `
+                    ${qrObj.slice(0, 8).map(record => this.createAttendanceDate(record, attendanceObj)).join('')}
+                    ${qrObj.length > 8 ? `
                         <div class="more_records" style="text-align: center; padding: 10px; color: #666;">
-                            +${courseRecords.length - 8} more records
+                            +${qrObj.length - 8} more records
                         </div>
                     ` : ''}
                 </div>
             </div>
         `;
     }
-
-    createAttendanceDate(record) {
-        const date = new Date(record.session.startsAt);
+    // This function creates the HTML for a single attendance record,
+    // showing the date and status (present, absent, late) for that session.
+    createAttendanceDate(qrObj, attendanceObj) {
+        const sessionObj = this.sessions.find(s => s.sessionId === qrObj.sessionId);
+        const attendanceRecord = attendanceObj.find(a => a.code === qrObj.code);
+        const date = new Date(sessionObj.date);
         const formattedDate = date.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
@@ -301,14 +320,14 @@ class StudentDashboard {
             'LATE': 'fa-clock',
             'EXCUSED': 'fa-user-clock',
             'ABSENT': 'fa-times'
-        }[record.status];
+        }[attendanceRecord.sessionAttendance]
         
         return `
-            <div class="attendance_date ${record.status.toLowerCase()}">
+            <div class="attendance_date ${attendanceRecord.sessionAttendance.toLowerCase()}">
                 <span>${formattedDate}</span>
-                <span class="status ${record.status.toLowerCase()}">
+                <span class="status ${attendanceRecord.sessionAttendance.toLowerCase()}">
                     <i class="fas ${statusIcon}"></i>
-                    ${record.status.toLowerCase()}
+                    ${attendanceRecord.sessionAttendance.toLowerCase()}
                 </span>
             </div>
         `;
@@ -324,30 +343,46 @@ class StudentDashboard {
     }
 
     // Check-in functionality
-    openQRScanner() {
+    async openQRScanner() {
         document.getElementById('qr_scanner').classList.remove('hidden');
-        
-        // Simulate QR code scan
-        setTimeout(() => {
-            this.processQRCheckIn('math101_20241015'); // Simulate scanning MATH101 QR
-        }, 2000);
-    }
+        const video = document.getElementById("qr_video");
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" }
+        });
+        video.srcObject = stream;
 
+        await new Promise(resolve => {
+            video.onloadedmetadata = () => {
+                video.play();
+                resolve();
+            };
+        });
+
+        const scannedData = this.currentUser.scanQRCode(video);
+        this.processQRCheckIn(scannedData);
+    }
+    // Stop camera when closing scanner
     closeQRScanner() {
-        document.getElementById('qr_scanner').classList.add('hidden');
+        const video = document.getElementById("qr_video");
+        if (video.srcObject) {
+            video.srcObject.getTracks().forEach(track => track.stop());
+            video.srcObject = null;
+        }        
+        document.getElementById('qr_scanner').classList.add('hidden'); 
     }
 
-    processQRCheckIn(qrNonce) {
-        const session = this.sessions.find(s => s.qrNonce === qrNonce);
+    processQRCheckIn(scannedData) {
+        const qrCodeObj = this.qrcode.find(qr => qr.code === scannedData);
+        const session = this.sessions.find(s => s.sessionId === qrCodeObj.sessionId);
+        const attendanceRecord = this.attendance.find(a => a.code === qrCodeObj.code && a.studentId === this.currentUser.id);
         if (session) {
             this.closeQRScanner();
-            this.recordAttendance(session, 'PRESENT');
+            this.recordAttendance(attendanceRecord, 'PRESENT');
             document.getElementById('success_message').textContent = 
-                `Checked in to ${session.course.title}`;
+                `Checked in to ${session.courseId}`;
             this.showSuccessMessage();
         } else {
             alert('Invalid QR code. Please try again.');
-            this.closeQRScanner();
         }
     }
 
@@ -362,12 +397,13 @@ class StudentDashboard {
     }
 
     submitManualCheckIn() {
+        //const sessionActive = this.courses.find(s => {
         const code = document.getElementById('class_code').value.trim().toUpperCase();
         if (code) {
-            const session = this.sessions.find(s => s.course.code === code);
+            const attendanceRecord = this.attendance.find(a => a.code === code && a.studentId === this.currentUser.id);
             if (session) {
                 this.closeManualCheckIn();
-                this.recordAttendance(session, 'PRESENT');
+                this.recordAttendance(attendanceRecord, 'PRESENT');
                 document.getElementById('success_message').textContent = 
                     `Checked in to ${session.course.title}`;
                 this.showSuccessMessage();
@@ -379,23 +415,9 @@ class StudentDashboard {
         }
     }
 
-    recordAttendance(session, status) {
+    recordAttendance(attendanceObj, status) {
         // Create new attendance record
-        const newRecord = {
-            id: 'att_' + Date.now(),
-            studentId: this.currentUser.id,
-            sessionId: session.id,
-            status: status,
-            checkedInAt: new Date().toISOString(),
-            session: {
-                course: session.course,
-                startsAt: session.startsAt
-            }
-        };
-
-        // Add to records
-        this.attendance.unshift(newRecord);
-        
+        attendanceObj.sessionAttendance = status;        
         // Update dashboard
         this.updateDashboard();
         
@@ -418,17 +440,14 @@ class StudentDashboard {
     checkInToCourse(courseId) {
         this.switchSection('checkin');
         
-        const course = this.courses.find(c => c.id === courseId);
+        const course = this.courses.find(c => c.courseId === courseId);
         setTimeout(() => {
             document.getElementById('success_message').textContent = 
-                `Ready to check in for ${course.title}`;
+                `Ready to check in for ${course.courseName}`;
             this.openQRScanner();
         }, 500);
     }
 
-    viewCourseDetails(courseId) {
-        this.switchSection('attendance');
-    }
 
     // Utility methods
     updateUIElement(id, content) {
