@@ -1,0 +1,93 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  STUDENT
+  FACULTY
+  ADMIN
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  EXCUSED
+  ABSENT
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  firstName String
+  lastName  String
+  role      UserRole
+  password  String   // new field
+  createdAt DateTime @default(now())
+
+  studentProfile StudentProfile?
+  facultyProfile FacultyProfile?
+
+  courses     Course[]     @relation("FacultyCourses")
+  attendances Attendance[] @relation("StudentAttendance")
+}
+
+model StudentProfile {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // add student-only fields later if needed
+}
+
+model FacultyProfile {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // add faculty-only fields later if needed
+}
+
+model Course {
+  id            String    @id @default(uuid())
+  code          String
+  title         String
+  semester      String?
+  facultyUserId String
+  faculty       User      @relation("FacultyCourses", fields: [facultyUserId], references: [id])
+  sessions      Session[]
+
+  @@unique([code, semester])
+}
+
+model Session {
+  id        String    @id @default(uuid())
+  courseId  String
+  startsAt  DateTime
+  endsAt    DateTime
+  qToken    String?
+  expiresAt DateTime?
+
+  course     Course       @relation(fields: [courseId], references: [id])
+  attendance Attendance[]
+}
+
+model Attendance {
+  id            String           @id @default(uuid())
+  sessionId     String
+  studentUserId String
+  status        AttendanceStatus @default(PRESENT)
+  checkedInAt   DateTime         @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student User    @relation("StudentAttendance", fields: [studentUserId], references: [id], onDelete: Cascade)
+
+  @@unique([studentUserId, sessionId]) // prevent double check-in
+}
