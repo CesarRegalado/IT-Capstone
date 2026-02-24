@@ -1,8 +1,6 @@
 // Instructor Dashboard Functionality
 class InstructorDashboard {
     constructor() {
-        console.log('InstructorDashboard: Initializing...');
-
         this.currentUser = null;
         this.courses = [];
         this.students = [];
@@ -30,12 +28,12 @@ class InstructorDashboard {
             const userData = sessionStorage.getItem('currentInstructor');
             
             if (!userData) {
-                console.log('No instructor session found'); //loads test data for now
-                await this.loadTestData();
-            } else {
-                this.currentUser = JSON.parse(userData);
-                await this.loadTestData();
+                window.location.href = '../index.html';
+                return;
             }
+            
+            this.currentUser = JSON.parse(userData);
+            await this.loadInitialData();
             
             // Update UI
             this.updateUIElement('instructor_name', this.currentUser.firstName + ' ' + this.currentUser.lastName);
@@ -49,7 +47,6 @@ class InstructorDashboard {
             
             // Message listener for session window (check-in screen)
             window.addEventListener('message', (event) => {
-                console.log('Received message:', event.data);
                 if (event.data && event.data.action === 'endSessionFromProjector') {
                     if (this.activeSession) {
                         this.endSession();
@@ -75,7 +72,6 @@ class InstructorDashboard {
             // Restore app state
             this.restoreAppState();
             
-            console.log('InstructorDashboard: Ready!');
         } catch (error) {
             console.error('Error initializing app:', error);
             this.showToast('Error initializing application');
@@ -182,87 +178,76 @@ class InstructorDashboard {
         }
     }
 
-    //TEST DATA ONLY. PLS REMOVE
-    async loadTestData() {
-        console.log('Loading test data...');
-        
-        // Load sessions from storage
+    async loadInitialData() {
         this.loadSessionsFromStorage();
-        
-        // Check if test data is available
-        if (typeof window.INSTRUCTOR_TEST_DATA !== 'undefined' && window.INSTRUCTOR_TEST_DATA.user) {
-            console.log('INSTRUCTOR_TEST_DATA found');
-            this.currentUser = window.INSTRUCTOR_TEST_DATA.user;
-            this.courses = window.INSTRUCTOR_TEST_DATA.courses || [];
-            
-            // Load test students ONLY if we don't have any students yet
-            // This preserves students added via approval
-            if (!this.students || this.students.length === 0) {
-                this.students = window.INSTRUCTOR_TEST_DATA.students || [];
-                console.log('Loaded test students:', this.students.length);
-            } else {
-                console.log('Keeping existing students (from approvals):', this.students.length);
-            }
-            
-            // Add existing courses to global registry
-            this.courses.forEach(course => {
-                if (!course.faculty) {
-                    course.faculty = {
-                        firstName: this.currentUser.firstName,
-                        lastName: this.currentUser.lastName
-                    };
-                }
-                this.addToGlobalCourseRegistry(course);
-            });
-            
-            // Only use test data sessions if we don't have any in storage
-            if (this.sessions.length === 0 && window.INSTRUCTOR_TEST_DATA.sessions) {
-                this.sessions = window.INSTRUCTOR_TEST_DATA.sessions;
-                this.saveSessionsToStorage();
-            }
+
+        const API = window.API_BASE || 'http://localhost:3000';
+        const coursesUrl = this.currentUser?.email
+            ? `${API}/courses?facultyEmail=${encodeURIComponent(this.currentUser.email)}`
+            : this.currentUser?.id
+            ? `${API}/courses?facultyUserId=${encodeURIComponent(this.currentUser.id)}`
+            : `${API}/courses`;
+        const [coursesResult, studentsResult] = await Promise.allSettled([
+            fetch(coursesUrl),
+            fetch(`${API}/students`)
+        ]);
+
+        if (coursesResult.status === 'fulfilled' && coursesResult.value.ok) {
+            const courses = await coursesResult.value.json();
+            this.courses = Array.isArray(courses) ? courses : [];
         } else {
-            console.warn('INSTRUCTOR_TEST_DATA not found or incomplete');
-            this.createMinimalFallbackData();
+            const reason = coursesResult.status === 'rejected'
+                ? coursesResult.reason
+                : new Error(`HTTP ${coursesResult.value.status}`);
+            console.warn('Could not load courses from API:', reason);
+            this.courses = [];
         }
-        
+
+        if (studentsResult.status === 'fulfilled' && studentsResult.value.ok) {
+            const students = await studentsResult.value.json();
+            const instructorCourseIds = new Set(this.courses.map(course => course.id));
+            this.students = Array.isArray(students)
+                ? students.map(student => ({
+                    ...student,
+                    universityId: student.universityId || student.studentId || student.id,
+                    courses: Array.from(new Set([
+                        ...(Array.isArray(student.courses) ? student.courses : []),
+                        ...((student.attendances || [])
+                            .map(attendance => attendance?.session?.course?.id || attendance?.session?.courseId)
+                            .filter(courseId => courseId && instructorCourseIds.has(courseId)))
+                    ]))
+                }))
+                .filter(student => student.courses && student.courses.length > 0)
+                : [];
+        } else {
+            const reason = studentsResult.status === 'rejected'
+                ? studentsResult.reason
+                : new Error(`HTTP ${studentsResult.value.status}`);
+            console.warn('Could not load students from API:', reason);
+            this.students = [];
+        }
+
+        this.courses.forEach(course => {
+            if (!course.faculty) {
+                course.faculty = {
+                    firstName: this.currentUser.firstName,
+                    lastName: this.currentUser.lastName
+                };
+            }
+            this.addToGlobalCourseRegistry(course);
+        });
+
         this.ensureStudentCourseEnrollments();
     }
 
-    createMinimalFallbackData() {
-        // Only create absolutely essential data if test data is missing
-        this.currentUser = {
-            id: 'instructor_1',
-            firstName: 'Professor',
-            lastName: 'Instructor',
-            email: 'instructor@university.edu'
-        };
-        
-        // Empty arrays - user will need to add courses
-        this.courses = [];
-        this.students = [];
-        this.sessions = [];
-        
-        console.warn('Using minimal fallback data - please ensure instructor_test_data.js is loaded');
-    }
-
     ensureStudentCourseEnrollments() {
-        // Only process if we have both courses and students
-        if (this.courses.length > 0 && this.students.length > 0) {
-            let needsFix = false;
-            
-            this.students.forEach(student => {
-                if (!student.courses || student.courses.length === 0) {
-                    // Enroll student in first course if no courses assigned
-                    student.courses = [this.courses[0].id];
-                    needsFix = true;
-                }
-            });
-            
-            if (needsFix) {
-                console.log('Fixed student course enrollments');
-                this.saveAppState();
+        // Legacy test-data helper kept as a no-op for compatibility.
+        // Real student/course associations should come from DB-backed attendance/enrollment data.
+        this.students.forEach(student => {
+            if (!Array.isArray(student.courses)) {
+                student.courses = [];
             }
-        }
+        });
     }
 
     initializeNavigation() {
@@ -321,8 +306,6 @@ class InstructorDashboard {
     }
 
     switchSection(section, pushToHistory = true) {
-        console.log('Switching to section:', section, 'pushToHistory:', pushToHistory);
-        
         this.currentSection = section;
         
         if (pushToHistory) {
@@ -580,11 +563,34 @@ class InstructorDashboard {
         `;
     }
 
-    deleteCourse(courseId) {
+    async deleteCourse(courseId) {
         const course = this.courses.find(c => c.id === courseId);
         if (!course) return;
 
         if (confirm(`Are you sure you want to delete "${course.title}" (${course.code})? This action cannot be undone and will remove all sessions and attendance data.`)) {
+            const API = window.API_BASE || 'http://localhost:3000';
+
+            try {
+                const params = new URLSearchParams();
+                if (this.currentUser?.id) params.set('facultyUserId', this.currentUser.id);
+                if (this.currentUser?.email) params.set('facultyEmail', this.currentUser.email);
+
+                const response = await fetch(
+                    `${API}/courses/${encodeURIComponent(courseId)}${params.toString() ? `?${params.toString()}` : ''}`,
+                    { method: 'DELETE' }
+                );
+
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    this.showToast(payload.error || 'Failed to delete course');
+                    return;
+                }
+            } catch (error) {
+                console.error('Error deleting course from backend:', error);
+                this.showToast('Error deleting course');
+                return;
+            }
+
             this.courses = this.courses.filter(c => c.id !== courseId);
             this.sessions = this.sessions.filter(s => s.courseId !== courseId);
             
@@ -834,11 +840,11 @@ class InstructorDashboard {
             this.showToast('Please select a course first');
             return;
         }
-        
-        console.log('Starting session for course:', this.currentCourse.code);
+        let pendingProjectorWindow = null;
         
         try {
-            const { classCode, qrNonce } = this.generateTemporarySessionCodes();
+            pendingProjectorWindow = this.openPendingProjectorWindow();
+            const { classCode, qrNonce } = this.generateSessionCodes();
             
             // Create session object with all required data, some of this can change
             const sessionData = {
@@ -858,9 +864,7 @@ class InstructorDashboard {
                 status: 'active'
             };
             
-            console.log('Session created:', sessionData);
-            
-            // Save session to database. We need to connect it to this first
+            // Save session to database
             const savedSession = await this.saveSessionToDatabase(sessionData);
             
             if (savedSession) {
@@ -871,21 +875,76 @@ class InstructorDashboard {
                 this.enableAttendanceEditing();
                 this.showStudentsSection();
                 this.startRealTimeUpdates();
-                this.openSessionDisplay();
+                this.openSessionDisplay(pendingProjectorWindow);
                 
                 this.showToast(`Session started for ${this.currentCourse.code}`);
             } else {
+                if (pendingProjectorWindow && !pendingProjectorWindow.closed) {
+                    pendingProjectorWindow.close();
+                }
                 throw new Error('Failed to save session to database');
             }
             
         } catch (error) {
+            if (pendingProjectorWindow && !pendingProjectorWindow.closed) {
+                pendingProjectorWindow.close();
+            }
             console.error('Error starting session:', error);
             this.showToast('Error starting session. Please try again.');
         }
     }
 
-    //TEMPORARY CLASS CODE GENERATION FOR TESTINNG
-    generateTemporarySessionCodes() {
+    openPendingProjectorWindow() {
+        try {
+            const windowFeatures = 'width=1200,height=800,menubar=no,toolbar=no,location=no';
+            const projectorWindow = window.open('', 'session_display', windowFeatures);
+
+            if (!projectorWindow) {
+                return null;
+            }
+
+            projectorWindow.document.write(`
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Loading Session...</title>
+                    <style>
+                        body {
+                            margin: 0;
+                            min-height: 100vh;
+                            display: grid;
+                            place-items: center;
+                            font-family: Segoe UI, Arial, sans-serif;
+                            background: #f7f7f7;
+                            color: #333;
+                        }
+                        .loading-card {
+                            background: white;
+                            border: 1px solid #e0e0e0;
+                            border-radius: 12px;
+                            padding: 24px 28px;
+                            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+                            text-align: center;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="loading-card">Preparing projector view...</div>
+                </body>
+                </html>
+            `);
+            projectorWindow.document.close();
+
+            return projectorWindow;
+        } catch (error) {
+            console.warn('Could not pre-open projector window:', error);
+            return null;
+        }
+    }
+
+    generateSessionCodes() {
         // Cross-browser random string generation
         const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
         let classCode = '';
@@ -901,38 +960,56 @@ class InstructorDashboard {
     }
 
     async saveSessionToDatabase(sessionData) {
-        try {
-            console.log('Saving session to database:', sessionData);
-            
-            // Simulate API call to backend
-            // In a real application, this would be a fetch() call to the backend API
-            return await this.simulateDatabaseSave(sessionData);
-        } catch (error) {
-            console.error('Error saving session to database:', error);
-            throw error;
-        }
+  try {
+    const API = window.API_BASE || "http://localhost:3000";
+
+    // Create session in backend (DB)
+    const res = await fetch(`${API}/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseId: sessionData.courseId,
+        startsAt: sessionData.startsAt, // optional; backend defaults if missing
+        qToken: sessionData.classCode,
+        // endsAt optional; backend defaults if missing
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Failed to create session (${res.status}): ${errText}`);
     }
 
-    async simulateDatabaseSave(sessionData) {
-        // Simulate database save with timeout. TEMPORARY. looks cool though
-        return new Promise((resolve) => {
-            setTimeout(() => {
-                // Add session to sessions array
-                this.sessions.push(sessionData);
-                
-                // Update localStorage for persistence (simulating database)
-                this.saveSessionsToStorage();
-                
-                console.log('Session saved to database:', sessionData.id);
-                resolve(sessionData);
-            }, 100);
-        });
-    }
+    const dbSession = await res.json();
+
+    // Merge DB session fields into UI session object
+    // Keep UI-only fields like qrNonce, classCode, instructorName, status, attendance, etc.
+    const merged = {
+      ...sessionData,
+      id: dbSession.id,           // IMPORTANT: use DB session id
+      startsAt: dbSession.startsAt,
+      endsAt: dbSession.endsAt,
+      courseId: dbSession.courseId,
+      classCode: dbSession.qToken ?? sessionData.classCode,
+      qToken: dbSession.qToken ?? null,
+      expiresAt: dbSession.expiresAt ?? null,
+    };
+
+    // Keep local sessions array updated (UI state)
+    this.sessions.push(merged);
+
+    // Optional: can stop saving to localStorage once DB is working
+    // this.saveSessionsToStorage();
+
+    return merged;
+  } catch (error) {
+    console.error("Error saving session to backend:", error);
+    throw error;
+  }
+}
 
     saveSessionsToStorage() {
         try {
-            // Save sessions to localStorage for testing purposes
-            // In a real app, this would be handled by the backend
             const sessionsData = {
                 sessions: this.sessions,
                 lastUpdated: new Date().toISOString()
@@ -949,7 +1026,6 @@ class InstructorDashboard {
             if (sessionsData) {
                 const parsedData = JSON.parse(sessionsData);
                 this.sessions = parsedData.sessions || [];
-                console.log(`Loaded ${this.sessions.length} sessions from storage`);
             }
         } catch (error) {
             console.warn('Could not load sessions from storage:', error);
@@ -957,12 +1033,9 @@ class InstructorDashboard {
     }
 
     enableAttendanceEditing() {
-        console.log('Enabling attendance editing for session');
-        
         this.renderStudentsTable(this.currentCourse.id);
         
         const rows = document.querySelectorAll('#students_table_body tr');
-        console.log(`Found ${rows.length} student rows to enable editing`);
         
         rows.forEach(row => {
             const buttons = row.querySelectorAll('.status_btn');
@@ -977,8 +1050,6 @@ class InstructorDashboard {
     }
 
     disableAttendanceEditing() {
-        console.log('Disabling attendance editing');
-        
         const rows = document.querySelectorAll('#students_table_body tr');
         rows.forEach(row => {
             const buttons = row.querySelectorAll('.status_btn');
@@ -1025,7 +1096,7 @@ class InstructorDashboard {
         this.updateUIElement('live_total_count', courseStudents.length.toString());
     }
 
-    openSessionDisplay() {
+    openSessionDisplay(preOpenedWindow = null) {
         if (!this.activeSession || !this.currentCourse) {
             console.error('No active session or course');
             return;
@@ -1034,13 +1105,14 @@ class InstructorDashboard {
         try {
             const url = `session.html?code=${this.activeSession.classCode}&course=${encodeURIComponent(this.currentCourse.title)}`;
             
-            console.log('Opening session display with URL:', url);
-            
             // Cross-browser window.open with fallback
             const windowFeatures = 'width=1200,height=800,menubar=no,toolbar=no,location=no';
-            this.projectorWindow = window.open(url, 'session_display', windowFeatures);
+            this.projectorWindow = preOpenedWindow && !preOpenedWindow.closed
+                ? preOpenedWindow
+                : window.open('', 'session_display', windowFeatures);
             
             if (this.projectorWindow) {
+                this.projectorWindow.location.href = url;
                 this.projectorWindow.focus();
                 this.showToast('Projector view opened in new window');
             } else {
@@ -1063,10 +1135,9 @@ class InstructorDashboard {
     startRealTimeUpdates() {
         // Cross-browser setInterval
         this.sessionInterval = setInterval(() => {
-            this.simulateStudentCheckins();
-            this.updateLiveStats();
-            this.updateStudentTableRealTime();
+            this.syncActiveSessionAttendanceFromBackend();
         }, 3000);
+        this.syncActiveSessionAttendanceFromBackend();
     }
 
     stopRealTimeUpdates() {
@@ -1076,29 +1147,98 @@ class InstructorDashboard {
         }
     }
 
-    //check in simulation. TO BE REMOVED
-    simulateStudentCheckins() {
+    async syncActiveSessionAttendanceFromBackend() {
         if (!this.activeSession) return;
-        
-        const courseStudents = this.getStudentsForCourse(this.currentCourse.id);
-        const absentStudents = courseStudents.filter(student => 
-            this.studentAttendance.get(student.id) === 'ABSENT'
-        );
-        
-        if (absentStudents.length > 0 && Math.random() > 0.7) {
-            const randomStudent = absentStudents[Math.floor(Math.random() * absentStudents.length)];
-            this.studentAttendance.set(randomStudent.id, 'PRESENT');
+
+        try {
+            const API = window.API_BASE || "http://localhost:3000";
+            const res = await fetch(`${API}/sessions/${this.activeSession.id}/attendance`);
+            if (!res.ok) {
+                return;
+            }
+
+            const records = await res.json();
+            if (!Array.isArray(records)) {
+                return;
+            }
+
+            let rosterChanged = false;
+            let attendanceChanged = false;
+            records.forEach(record => {
+                if (record && record.studentUserId && record.status) {
+                    const previousStatus = this.studentAttendance.get(record.studentUserId);
+                    if (previousStatus !== record.status) {
+                        attendanceChanged = true;
+                    }
+                    this.studentAttendance.set(record.studentUserId, record.status);
+                }
+
+                if (record && record.student && this.currentCourse) {
+                    const existingStudent = this.students.find(student => student.id === record.student.id);
+                    if (existingStudent) {
+                        if (!existingStudent.courses) {
+                            existingStudent.courses = [];
+                        }
+                        if (!existingStudent.courses.includes(this.currentCourse.id)) {
+                            existingStudent.courses.push(this.currentCourse.id);
+                            rosterChanged = true;
+                        }
+                        if (!existingStudent.universityId && record.student.universityId) {
+                            existingStudent.universityId = record.student.universityId;
+                        }
+                    } else {
+                        this.students.push({
+                            ...record.student,
+                            universityId: record.student.universityId || record.student.id,
+                            courses: [this.currentCourse.id]
+                        });
+                        rosterChanged = true;
+                    }
+                }
+            });
+
+            const previousAttendanceCount = Array.isArray(this.activeSession.attendance)
+                ? this.activeSession.attendance.length
+                : 0;
+
+            this.activeSession.attendance = records.map(record => ({
+                studentId: record.studentUserId,
+                status: record.status,
+                checkedInAt: record.checkedInAt,
+                sessionId: record.sessionId,
+                recordedAt: record.checkedInAt
+            }));
+            attendanceChanged = attendanceChanged || records.length !== previousAttendanceCount;
+
+            const sessionIndex = this.sessions.findIndex(session => session.id === this.activeSession.id);
+            if (sessionIndex !== -1) {
+                this.sessions[sessionIndex].attendance = this.activeSession.attendance;
+                this.sessions[sessionIndex].status = this.activeSession.status;
+                this.sessions[sessionIndex].endsAt = this.activeSession.endsAt;
+            }
+
             this.updateLiveStats();
-            this.showToast(`${randomStudent.firstName} checked in`);
+            if (rosterChanged && this.currentCourse) {
+                this.renderStudentsTable(this.currentCourse.id);
+                this.renderCourses();
+            } else {
+                this.updateStudentTableRealTime();
+            }
+
+            if ((rosterChanged || attendanceChanged) && this.currentSection === 'attendance') {
+                const courseFilter = document.getElementById('course_filter');
+                this.renderAttendanceReports(courseFilter ? courseFilter.value : 'all');
+            }
+        } catch (error) {
+            console.warn('Could not sync session attendance from backend:', error);
         }
     }
 
-    //real time updates
+    // Update on-screen attendance state for the active session.
     updateStudentTableRealTime() {
         if (!this.activeSession || !this.currentCourse) return;
         
         const rows = document.querySelectorAll('#students_table_body tr');
-        console.log(`Updating ${rows.length} student rows in real-time`);
         
         rows.forEach(row => {
             const studentId = row.dataset.studentId;
@@ -1123,21 +1263,25 @@ class InstructorDashboard {
     }
 
     async endSession() {
-        console.log('endSession called - checking active session:', this.activeSession);
-        
         if (!this.activeSession) {
             console.error('No active session to end');
             this.showToast('No active session found');
             return;
         }
         
-        console.log('Ending session:', this.activeSession.id);
-        
         try {
             // Update session with end time and final attendance
             this.activeSession.endsAt = new Date().toISOString();
             this.activeSession.status = 'completed';
             
+            // Persist end-session to backend (Supabase)
+            const API = window.API_BASE || "http://localhost:3000";
+            const r = await fetch(`${API}/sessions/${this.activeSession.id}/end`, { method: "PATCH" });
+                if (!r.ok) {
+                    const t = await r.text();
+                console.warn("Failed to update session end in backend:", r.status, t);
+                }
+
             // Calculate session duration with error handling
             try {
                 this.activeSession.duration = this.calculateSessionDuration();
@@ -1146,18 +1290,12 @@ class InstructorDashboard {
                 this.activeSession.duration = 'N/A';
             }
             
-            console.log('Session data updated, saving attendance...');
-            
             // Save final attendance data
             await this.saveSessionAttendance();
-            
-            console.log('Attendance saved, updating session in database...');
-            
+
             // Update session in database
             await this.updateSessionInDatabase(this.activeSession);
-            
-            console.log('Session updated in database, cleaning up...');
-            
+
             // Clean up session state
             this.stopRealTimeUpdates();
             this.disableAttendanceEditing();
@@ -1188,8 +1326,6 @@ class InstructorDashboard {
             const endedSession = this.activeSession;
             this.activeSession = null;
             this.studentAttendance.clear();
-            
-            console.log('Session ended successfully:', endedSession.id);
             
         } catch (error) {
             console.error('Error ending session:', error);
@@ -1249,8 +1385,6 @@ class InstructorDashboard {
         
         this.activeSession.attendance = attendanceRecords;
         
-        console.log(`Saved ${attendanceRecords.length} attendance records for session ${this.activeSession.id}`);
-        
         // Update attendance in the database
         await this.updateSessionInDatabase(this.activeSession);
     }
@@ -1265,8 +1399,6 @@ class InstructorDashboard {
                 // Update localStorage
                 this.saveSessionsToStorage();
                 
-                console.log('Session updated in database:', updatedSession.id);
-                
                 // Refresh attendance reports if we're on that page
                 if (this.currentSection === 'attendance') {
                     this.renderAttendanceReports();
@@ -1279,8 +1411,6 @@ class InstructorDashboard {
     }
 
     updateStudentAttendance(studentId, courseId, status, row = null) {
-        console.log(`Updating attendance for student ${studentId} to ${status}`);
-        
         if (this.activeSession && this.activeSession.courseId === courseId) {
             this.studentAttendance.set(studentId, status);
             this.updateLiveStats();
@@ -1806,7 +1936,7 @@ class InstructorDashboard {
         }
     }
 
-    handleCourseSubmit(e) {
+    async handleCourseSubmit(e) {
         e.preventDefault();
         
         const courseName = document.getElementById('course_name');
@@ -1822,6 +1952,85 @@ class InstructorDashboard {
             return;
         }
         
+        const localSchedule = {
+            days: Array.from(sessionDays.selectedOptions).map(opt => opt.value),
+            startTime: sessionStartTime.value,
+            endTime: sessionEndTime.value,
+            location: sessionLocation.value
+        };
+
+        const payload = {
+            title: courseName.value.trim(),
+            code: courseCode.value.trim().toUpperCase(),
+            semester: courseSemester.value.trim(),
+            schedule: localSchedule,
+            facultyUserId: this.currentUser.id || '',
+            facultyEmail: this.currentUser.email || '',
+            facultyFirstName: this.currentUser.firstName || 'Instructor',
+            facultyLastName: this.currentUser.lastName || 'User'
+        };
+
+        if (!payload.title || !payload.code || !payload.semester) {
+            this.showToast('Please fill in all required fields');
+            return;
+        }
+
+        const submitBtn = document.getElementById('course_modal_submit');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving...';
+        }
+
+        try {
+            const API = window.API_BASE || 'http://localhost:3000';
+            const response = await fetch(`${API}/courses`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const responseBody = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                this.showToast(responseBody.error || 'Failed to create course');
+                return;
+            }
+
+            const dbCourse = responseBody;
+            if (dbCourse.facultyUserId && this.currentUser.id !== dbCourse.facultyUserId) {
+                this.currentUser.id = dbCourse.facultyUserId;
+                sessionStorage.setItem('currentInstructor', JSON.stringify(this.currentUser));
+            }
+            const courseData = {
+                ...dbCourse,
+                schedule: dbCourse.schedule || localSchedule,
+                instructorId: dbCourse.facultyUserId,
+                faculty: dbCourse.faculty || {
+                    firstName: this.currentUser.firstName,
+                    lastName: this.currentUser.lastName
+                }
+            };
+
+            this.courses.push(courseData);
+
+            // Add to global course registry for students to find
+            this.addToGlobalCourseRegistry(courseData);
+
+            this.closeCourseModal();
+            this.renderCourses();
+            this.saveAppState();
+            this.showToast('Course added successfully');
+        } catch (error) {
+            console.error('Error creating course:', error);
+            this.showToast('Error creating course');
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Add Course';
+            }
+        }
+    }
+
+    /* legacy local course template retained for reference during transition
         const courseData = {
             id: 'course_' + Date.now(),
             title: courseName.value,
@@ -1839,17 +2048,7 @@ class InstructorDashboard {
                 lastName: this.currentUser.lastName
             }
         };
-
-        this.courses.push(courseData);
-        
-        // Add to global course registry for students to find
-        this.addToGlobalCourseRegistry(courseData);
-        
-        this.closeCourseModal();
-        this.renderCourses();
-        this.saveAppState();
-        this.showToast('Course added successfully');
-    }
+    */
 
     addToGlobalCourseRegistry(course) {
         try {
@@ -2289,15 +2488,6 @@ class InstructorDashboard {
                 toast.classList.remove('show');
             }, duration);
         }
-    }
-
-    debugSessionState() {
-        console.log('Current Session State:', {
-            activeSession: this.activeSession,
-            currentCourse: this.currentCourse,
-            studentAttendanceSize: this.studentAttendance.size,
-            currentSection: this.currentSection
-        });
     }
 
     // Navigation History Management
@@ -2811,9 +3001,6 @@ async function startSession() {
     try { 
         if (window.instructorDashboard) {
             await window.instructorDashboard.startSession(); 
-            setTimeout(() => {
-                window.instructorDashboard.debugSessionState();
-            }, 1000);
         }
     } catch(e) { 
         console.error('Error starting session:', e); 
@@ -2937,32 +3124,8 @@ function filterStudents() {
 
 // Enhanced initialization with comprehensive error handling
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded, initializing instructor dashboard...');
-    
-    // Check if test data is available. We can remove this
-    if (typeof INSTRUCTOR_TEST_DATA === 'undefined') {
-        console.error('INSTRUCTOR_TEST_DATA is not defined. Please check instructor_test_data.js');
-        const errorMsg = 'Error: Test data not loaded.';
-        
-        // Error message
-        const errorDiv = document.createElement('div');
-        errorDiv.style.cssText = 'padding: 20px; color: red; text-align: center; background: #ffeeee; border: 1px solid red; margin: 20px;';
-        errorDiv.innerHTML = `
-            <h3>Application Error</h3>
-            <p>${errorMsg}</p>
-            <p><small>Check the browser console for more details.</small></p>
-        `;
-        
-        // Insert at the beginning of body
-        document.body.insertBefore(errorDiv, document.body.firstChild);
-        
-        // Warning msg
-        console.warn('Attempting to initialize with minimal data...');
-    }
-    
     try {
         window.instructorDashboard = new InstructorDashboard();
-        console.log('Instructor dashboard initialized successfully');
     } catch (error) {
         console.error('Failed to initialize instructor dashboard:', error);
         const errorMsg = 'Error initializing application. Please check the console and refresh the page.';

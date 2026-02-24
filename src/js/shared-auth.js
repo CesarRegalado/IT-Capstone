@@ -1,5 +1,9 @@
 // Shared authentication utilities
 class AuthUtils {
+    static getApiBase() {
+        return window.API_BASE || 'http://localhost:3000';
+    }
+
     static validateEmail(email) {
         const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         return re.test(email);
@@ -88,6 +92,40 @@ class AuthUtils {
         return hash.toString();
     }
 
+    static async apiRequest(path, options = {}) {
+        const response = await fetch(`${this.getApiBase()}${path}`, {
+            headers: {
+                'Content-Type': 'application/json',
+                ...(options.headers || {})
+            },
+            ...options
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const error = new Error(payload.error || `Request failed (${response.status})`);
+            error.status = response.status;
+            error.payload = payload;
+            throw error;
+        }
+
+        return payload;
+    }
+
+    static async apiLogin(email, password) {
+        return this.apiRequest('/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ email, password })
+        });
+    }
+
+    static async apiRegister(userData) {
+        return this.apiRequest('/auth/register', {
+            method: 'POST',
+            body: JSON.stringify(userData)
+        });
+    }
+
     // Find user in both student and instructor databases
     static async findUserByEmail(email) {
         // Check instructors first
@@ -122,7 +160,9 @@ class AuthUtils {
                     window.location.href = 'instructor-dashboard/instructor.html';
                 }, 1000);
             } else if (user.role === 'student') {
+                // Keep both keys for compatibility with older/newer student flows.
                 sessionStorage.setItem('currentStudent', JSON.stringify(user));
+                sessionStorage.setItem('currentUser', JSON.stringify(user));
                 this.showToast(`Welcome, ${user.firstName}!`, 'success');
                 setTimeout(() => {
                     window.location.href = 'student-dashboard.html';

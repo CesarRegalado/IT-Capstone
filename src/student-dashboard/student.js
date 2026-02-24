@@ -50,6 +50,10 @@ class StudentDashboard {
         console.log('StudentDashboard: Ready!');
     }
 
+    getApiBase() {
+        return window.API_BASE || 'http://localhost:3000';
+    }
+
     initializeBrowserNavigation() {
         // Back button handling
         const backBtn = document.getElementById('back_btn');
@@ -164,15 +168,29 @@ class StudentDashboard {
         console.log('Loaded:', this.courses.length, 'courses');
     }
 
-    loadActiveSessions() {
+    async loadActiveSessions() {
         try {
-            // Load sessions from localStorage (shared with instructor)
+            const response = await fetch(`${this.getApiBase()}/sessions/active`);
+            if (response.ok) {
+                const sessions = await response.json();
+                this.sessions = Array.isArray(sessions)
+                    ? sessions.map(session => ({
+                        ...session,
+                        status: 'active',
+                        classCode: session.qToken || session.classCode
+                    }))
+                    : [];
+                return;
+            }
+        } catch (error) {
+            console.warn('Could not load active sessions from API, falling back to local storage:', error);
+        }
+
+        try {
             const sessionsData = localStorage.getItem('attendance_sessions');
             if (sessionsData) {
                 const parsedData = JSON.parse(sessionsData);
-                // Filter only active sessions
                 this.sessions = (parsedData.sessions || []).filter(s => s.status === 'active');
-                console.log('Loaded', this.sessions.length, 'active sessions');
             } else {
                 this.sessions = [];
             }
@@ -451,99 +469,91 @@ class StudentDashboard {
 
     // Check-in functionality
     openQRScanner() {
-        document.getElementById('qr_scanner').classList.remove('hidden');
-        
-        // Simulate QR code scan. FOR TESTS ONLY> PLS REMOVE
-        setTimeout(() => {
-            this.processQRCheckIn('math101_20241015'); // Simulate scanning QR
-        }, 2000);
+        // Legacy student dashboard path is not part of the main QR flow anymore.
+        // Public check-in now happens via the projector QR -> checkin.html page.
+        this.closeQRScanner();
+        alert('QR scanning in the legacy student dashboard is disabled. Use the projector QR code to open the check-in page.');
     }
 
     closeQRScanner() {
         document.getElementById('qr_scanner').classList.add('hidden');
     }
 
-    processQRCheckIn(qrNonce) {
-        // Reload sessions to get latest
-        this.loadActiveSessions();
-        
-        const session = this.sessions.find(s => s.qrNonce === qrNonce && s.status === 'active');
-        if (session) {
-            this.closeQRScanner();
-            this.recordAttendance(session, 'PRESENT');
-            
-            const course = this.courses.find(c => c.id === session.courseId);
-            const courseName = course ? course.title : session.courseTitle || 'class';
-            
-            document.getElementById('success_message').textContent = 
-                `Successfully checked in to ${courseName}!`;
-            this.showSuccessMessage();
-            
-            // Navigate to the course details after check-in
-            setTimeout(() => {
-                this.closeSuccessMessage();
-                this.viewCourseDetails(session.courseId);
-            }, 2500);
-        } else {
-            alert('Invalid QR code or session has ended. Please try again.');
-            this.closeQRScanner();
-        }
-    }
-
     openManualCheckIn() {
         document.getElementById('manual_checkin').classList.remove('hidden');
-        document.getElementById('class_code').focus();
+        document.getElementById('checkin_code').focus();
     }
 
     closeManualCheckIn() {
         document.getElementById('manual_checkin').classList.add('hidden');
-        document.getElementById('class_code').value = '';
+        document.getElementById('checkin_code').value = '';
     }
 
-    submitManualCheckIn() {
+    async submitManualCheckIn() {
         const code = document.getElementById('checkin_code').value.trim().toUpperCase();
         if (!code) {
             alert('Please enter a check-in code');
             return;
         }
 
-        console.log('Checking in with code:', code);
-        
-        // Reload sessions to get latest
-        this.loadActiveSessions();
-        
-        console.log('Active sessions:', this.sessions);
-        
-        // Try to find active session by check-in code
-        const session = this.sessions.find(s => s.classCode === code && s.status === 'active');
-        
-        if (session) {
-            console.log('Found session:', session);
-            
+        try {
+            const response = await fetch(`${this.getApiBase()}/attendance/check-in`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    code,
+                    studentId: this.currentUser?.universityId || this.currentUser?.studentId || '',
+                    email: this.currentUser?.email,
+                    firstName: this.currentUser?.firstName,
+                    lastName: this.currentUser?.lastName,
+                    status: 'PRESENT'
+                })
+            });
+
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                alert(payload.error || 'Unable to check in. Please try again.');
+                return;
+            }
+
+            const record = payload;
             this.closeManualCheckIn();
-            this.recordAttendance(session, 'PRESENT');
-            
-            const course = this.courses.find(c => c.id === session.courseId);
-            const courseName = course ? course.title : session.courseTitle || 'class';
-            
-            console.log('Showing success message for:', courseName);
-            
-            document.getElementById('success_message').textContent = 
+            this.addAttendanceRecord(record);
+
+            if (record.student?.id) {
+                this.currentUser.id = record.student.id;
+            }
+
+            const courseName = record.session?.course?.title || 'class';
+            document.getElementById('success_message').textContent =
                 `Successfully checked in to ${courseName}!`;
             this.showSuccessMessage();
-            
-            console.log('Success message shown, setting timeout for redirect');
-            
-            // Navigate to the course details after check-in
+
+            this.loadActiveSessions();
+
             setTimeout(() => {
-                console.log('Timeout fired, closing success and navigating');
                 this.closeSuccessMessage();
-                this.viewCourseDetails(session.courseId);
+                if (record.session?.courseId) {
+                    this.viewCourseDetails(record.session.courseId);
+                }
             }, 2500);
-        } else {
-            console.log('Session not found');
-            alert('Invalid or expired check-in code. Please try again or scan the QR code.');
+        } catch (error) {
+            console.error('Manual check-in failed:', error);
+            alert('Error checking in. Please try again.');
         }
+    }
+
+    addAttendanceRecord(record) {
+        if (!record) return;
+
+        this.attendance = [
+            record,
+            ...this.attendance.filter(existing =>
+                !(existing.sessionId === record.sessionId && existing.studentId === (record.studentId || record.studentUserId))
+            )
+        ];
+
+        this.updateDashboard();
     }
 
     recordAttendance(session, status) {

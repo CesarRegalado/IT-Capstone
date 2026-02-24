@@ -169,23 +169,7 @@ function initializeFormHandlers() {
                 return;
             }
 
-            // Check if user exists
-            const user = await AuthUtils.findUserByEmail(email);
-            
-            if (!user) {
-                AuthUtils.showToast('User not found', 'error');
-                return;
-            }
-
-            // Verify password
-            const isPasswordValid = await AuthUtils.verifyPassword(password, user.password);
-            
-            if (!isPasswordValid) {
-                AuthUtils.showToast('Invalid password', 'error');
-                return;
-            }
-
-            // Redirect based on role
+            const user = await AuthUtils.apiLogin(email, password);
             AuthUtils.handleSuccessfulLogin(user);
             
         } catch (error) {
@@ -244,77 +228,27 @@ function initializeFormHandlers() {
         
         AuthUtils.setButtonLoading(registerBtn, true);
         
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        registerUser(formData);
-        
-        AuthUtils.showToast(`Account created successfully! Welcome, ${formData.firstName}.`, 'success');
-        
-        setTimeout(() => {
-            sessionStorage.setItem('currentUser', JSON.stringify({
+        try {
+            const user = await AuthUtils.apiRegister({
                 firstName: formData.firstName,
                 lastName: formData.lastName,
                 email: formData.email,
-                role: formData.role,
-                loginTime: Date.now()
-            }));
-            
-            window.location.href = formData.role === 'student' ? 'student-dashboard.html' : 'instructor-dashboard/instructor.html';
-        }, 1000);
-    });
-}
+                password: formData.password,
+                role: formData.role
+            });
 
-// Passkey Authentication Functions
-function initializePasskeyAuth() {
-    const passkeyLoginBtn = document.getElementById('passkey-login-btn');
-    
-    // Check if passkeys are supported
-    if (!window.PublicKeyCredential) {
-        passkeyLoginBtn.style.display = 'none';
-        console.log('Passkeys not supported in this browser');
-        return;
-    }
-
-    // Passkey Login. REMOVE 
-    passkeyLoginBtn.addEventListener('click', async () => {
-        try {
-            AuthUtils.showToast('Attempting passkey login...', 'info');
-            
-            // Simulate passkey authentication (replace with real WebAuthn)
-            const user = await simulatePasskeyLogin();
-            
-            if (user) {
-                AuthUtils.showToast('Logged in with Passkey!', 'success');
-                sessionStorage.setItem('currentUser', JSON.stringify({
-                    ...user,
-                    loginTime: Date.now()
-                }));
-                
-                setTimeout(() => {
-                    window.location.href = user.role === 'student' ? 'student-dashboard.html' : 'instructor-dashboard/instructor.html';
-                }, 1000);
-            }
+            AuthUtils.showToast(`Account created successfully! Welcome, ${formData.firstName}.`, 'success');
+            AuthUtils.handleSuccessfulLogin(user);
         } catch (error) {
-            AuthUtils.showToast('Passkey login failed. Try password login.', 'error');
+            console.error('Registration error:', error);
+            if (error.status === 409) {
+                AuthUtils.showError('register_email', 'Email is already registered');
+            }
+            AuthUtils.showToast(error.message || 'Registration failed', 'error');
+        } finally {
+            AuthUtils.setButtonLoading(registerBtn, false);
         }
     });
-
-    // Simulate passkey login (replace with real WebAuthn implementation) REMOVE PLS
-    async function simulatePasskeyLogin() {
-        // For now, this simulates finding the test user
-        // In a real implementation, this would use WebAuthn API
-        return new Promise((resolve, reject) => {
-            setTimeout(() => {
-                const testUser = USER_DATABASE.students.get('undergraduate.student@student.edu');
-                if (testUser) {
-                    resolve(testUser);
-                } else {
-                    reject(new Error('No passkey found'));
-                }
-            }, 1000);
-        });
-    }
 }
 
 // Initialize everything when DOM is loaded
@@ -324,41 +258,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize Service Worker
     initializeServiceWorker();
     
-    // TEST USER. DELETE BEFORE FINISHING APP. pls
-    if (!USER_DATABASE.students.has('undergraduate.student@student.edu')) {
-        USER_DATABASE.students.set('undergraduate.student@student.edu', {
-            firstName: 'Undergraduate',
-            lastName: 'Student',
-            email: 'undergraduate.student@student.edu',
-            role: 'student',
-            password: AuthUtils.hashPassword('password123'),
-            createdAt: new Date().toISOString()
-        });
-        console.log('Test student added during initialization');
-    }
-    
-    // TEST INSTRUCTOR. DELETE BEFORE FINISHING APP.
-    if (!USER_DATABASE.instructors.has('instructor@university.edu')) {
-        USER_DATABASE.instructors.set('instructor@university.edu', {
-            firstName: 'John',
-            lastName: 'Doe',
-            email: 'instructor@university.edu',
-            role: 'instructor',
-            password: AuthUtils.hashPassword('password123'),
-            createdAt: new Date().toISOString()
-        });
-        console.log('Test instructor added during initialization');
-    }
-    
-    console.log('Final database state:', Array.from(USER_DATABASE.students.keys()));
-    
     initializeFormToggle();
     initializePWAInstall();
-    initializePasskeyAuth();
     AuthUtils.initializePasswordToggles();
     initializeFormHandlers();
-    
-    // Auto-fill test credentials for easier testing. REMOVE BEFORE FINISHING
-    document.getElementById('login_email').value = 'undergraduate.student@student.edu';
-    document.getElementById('login_password').value = 'password123';
 });

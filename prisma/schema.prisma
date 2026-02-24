@@ -60,6 +60,7 @@ model Course {
   code          String
   title         String
   semester      String?
+  schedule      Json?
   facultyUserId String
   faculty       User      @relation("FacultyCourses", fields: [facultyUserId], references: [id])
   sessions      Session[]

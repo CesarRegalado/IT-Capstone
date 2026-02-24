@@ -48,6 +48,22 @@
             margin-bottom: 30px;
         }
 
+        .qr-image {
+            width: 320px;
+            height: 320px;
+            display: grid;
+            place-items: center;
+            background: white;
+            border-radius: 12px;
+            margin-bottom: 24px;
+        }
+
+        .qr-image img,
+        .qr-image canvas {
+            max-width: 100%;
+            max-height: 100%;
+        }
+
         .qr-text {
             font-size: 2rem;
             font-weight: bold;
@@ -108,6 +124,13 @@
             border: 2px solid #ddd;
         }
 
+        .qr-link {
+            margin-top: 12px;
+            font-size: 0.85rem;
+            color: #666;
+            word-break: break-all;
+        }
+
         .button-container {
             display: flex;
             justify-content: center;
@@ -141,13 +164,16 @@
 <body>
     <!-- QR Code (Absolutely Centered) -->
     <div class="qr-code-container" id="qrCodeContainer">
-        <div class="qr-icon">
-            <i class="fas fa-qrcode"></i>
+        <div class="qr-image" id="qrImage">
+            <div class="qr-icon">
+                <i class="fas fa-qrcode"></i>
+            </div>
         </div>
         <div class="qr-text" id="qrClassCode">----</div>
         <div class="qr-instruction">
-            Scan QR code to check in
+            Scan QR code to open the check-in form
         </div>
+        <div class="qr-link" id="checkinUrlText"></div>
     </div>
     
     <!-- Info Panel Positioned to the Right -->
@@ -167,17 +193,39 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="../js/config.js"></script>
     <script>
         // Get URL parameters
         const urlParams = new URLSearchParams(window.location.search);
         const classCode = urlParams.get('code');
         const course = urlParams.get('course');
+        const configuredBase = (window.APP_BASE_URL || '').trim();
+        const checkinUrl = configuredBase
+            ? new URL('checkin.html', configuredBase.endsWith('/') ? configuredBase : `${configuredBase}/`)
+            : new URL('../checkin.html', window.location.href);
+        if (classCode) {
+            checkinUrl.searchParams.set('code', classCode);
+        }
 
         // Update display with course information
         document.getElementById('classCode').textContent = classCode || '----';
         document.getElementById('qrClassCode').textContent = classCode || '----';
         document.getElementById('courseTitle').textContent = course ? 
             `${decodeURIComponent(course)}` : 'Course Not Specified';
+        document.getElementById('checkinUrlText').textContent = classCode ? checkinUrl.toString() : '';
+
+        // Render QR code that opens the public check-in page
+        if (classCode && window.QRCode) {
+            const qrHost = document.getElementById('qrImage');
+            qrHost.innerHTML = '';
+            new QRCode(qrHost, {
+                text: checkinUrl.toString(),
+                width: 320,
+                height: 320,
+                correctLevel: QRCode.CorrectLevel.M
+            });
+        }
 
         // End session function
         function endSession() {
