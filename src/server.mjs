@@ -128,7 +128,7 @@ app.use(
       const allowedOrigins = new Set([
         'http://localhost:5173',
         'http://127.0.0.1:5173',
-        'https://deploy.d18ozidbfuhuju.amplifyapp.com',
+        'https://finish-integration.d18ozidbfuhuju.amplifyapp.com',
       ]);
 
       const allowedDevLanPatterns = [
