@@ -536,11 +536,6 @@ body {
     box-shadow: 0 0 0 2px rgba(136, 136, 136, 0.1);
 }
 
-.form_group select[multiple] { 
-    height: 120px; 
-    resize: vertical;
-}
-
 .form_actions {
     display: flex;
     gap: 10px;
@@ -589,6 +584,55 @@ body {
     font-size: 0.8rem;
     margin-top: 5px;
     display: block;
+}
+
+.day_picker {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.day_chip {
+    cursor: pointer;
+    user-select: none;
+    display: block;
+}
+
+.day_chip span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 40px;
+    border: 1px solid #d7dbe3;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #334155;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: all 0.18s ease;
+}
+
+.day_chip:hover span {
+    border-color: #94a3b8;
+    background: #f1f5f9;
+}
+
+.day_chip:focus-within {
+    outline: 2px solid rgba(14, 165, 164, 0.25);
+    outline-offset: 2px;
+}
+
+.day_chip input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.day_chip input:checked + span {
+    background: #0f766e;
+    border-color: #0f766e;
+    color: #fff;
 }
 
 /* Reports */
@@ -777,6 +821,10 @@ body {
     .schedule_fields, .course_summary { 
         grid-template-columns: 1fr; 
     }
+
+    .day_picker {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
     
     .students_table, .attendance_table { 
         overflow-x: auto; 
@@ -861,5 +909,11 @@ body {
     
     .content_section {
         display: block !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .day_picker {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }

@@ -152,28 +152,20 @@ class AuthUtils {
     // Handle successful login and redirect
     static handleSuccessfulLogin(user) {
         try {
-            // Store user session based on role
-            if (user.role === 'instructor') {
-                sessionStorage.setItem('currentInstructor', JSON.stringify(user));
-                this.showToast(`Welcome, Professor ${user.lastName}!`, 'success');
-                setTimeout(() => {
-                    window.location.href = 'instructor-dashboard/instructor.html';
-                }, 1000);
-            } else if (user.role === 'student') {
-                // Keep both keys for compatibility with older/newer student flows.
-                sessionStorage.setItem('currentStudent', JSON.stringify(user));
-                sessionStorage.setItem('currentUser', JSON.stringify(user));
-                this.showToast(`Welcome, ${user.firstName}!`, 'success');
-                setTimeout(() => {
-                    window.location.href = 'student-dashboard.html';
-                }, 1000);
-            } else {
-                this.showToast('Unknown user role', 'error');
+            // Auth page supports instructor login only.
+            if (user.role !== 'instructor') {
+                this.showToast('Student dashboard login is disabled. Use the QR check-in page.', 'error');
                 return false;
             }
-            
+
+            sessionStorage.setItem('currentInstructor', JSON.stringify(user));
+            this.showToast(`Welcome, Professor ${user.lastName}!`, 'success');
+            setTimeout(() => {
+                window.location.href = 'instructor-dashboard/instructor.html';
+            }, 1000);
+
             return true;
-            
+
         } catch (error) {
             console.error('Login redirect error:', error);
             this.showToast('Login failed', 'error');

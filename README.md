@@ -63,26 +63,15 @@ Render - Backend
 
 Current Scope Decisions
 
- Student Dashboard
-- A legacy `student-dashboard` still exists in the repo.
-- It is no longer part of the main  check-in flow.
-- Primary student experience is now the public QR check-in page (`checkin.html`).
-
 PWA
 - PWA/install support remains in the project (optional feature).
 - Not required for the core attendance workflow.
 
 Known Limitations / Future Improvements
-- Passwords are currently stored in plain text ( should be hashed before production)
 - No email verification / password reset backend flow yet
 - Passkey/WebAuthn is removed from active UI (future enhancement only)
 - Local phone testing may require LAN IP + firewall/CORS configuration
 
-Cleanup/Legacy Files (Not Core Flow)
-These may still exist for earlier experiments and can be removed later if not needed:
-- `test.html` (old passkey test page)
-- `server.js` (old passkey-only server entry)
-- passkey/webAuthn prototype files
 
 Tech Stack
 - HTML / CSS / Vanilla JS

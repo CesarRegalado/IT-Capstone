@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { PrismaClient, AttendanceStatus, UserRole } from '@prisma/client';
 
 const app = express();
@@ -22,6 +23,46 @@ function createCheckInCode(length = 6) {
 
 function normalizeStudentId(studentId) {
   return typeof studentId === 'string' ? studentId.trim().toUpperCase() : '';
+}
+
+function hashPassword(password) {
+  const salt = randomBytes(16).toString('hex');
+  const derivedKey = scryptSync(password, salt, 64).toString('hex');
+  return `scrypt$${salt}$${derivedKey}`;
+}
+
+function isHashedPassword(password) {
+  return typeof password === 'string' && password.startsWith('scrypt$');
+}
+
+function verifyPassword(inputPassword, storedPassword) {
+  if (typeof inputPassword !== 'string' || typeof storedPassword !== 'string') {
+    return false;
+  }
+
+  if (!isHashedPassword(storedPassword)) {
+    //  fallback for old accounts
+    return inputPassword === storedPassword;
+  }
+
+  const parts = storedPassword.split('$');
+  if (parts.length !== 3) {
+    return false;
+  }
+
+  const [, salt, storedKeyHex] = parts;
+  if (!salt || !storedKeyHex) {
+    return false;
+  }
+
+  const derivedInputKey = scryptSync(inputPassword, salt, 64);
+  const storedKeyBuffer = Buffer.from(storedKeyHex, 'hex');
+
+  if (storedKeyBuffer.length !== derivedInputKey.length) {
+    return false;
+  }
+
+  return timingSafeEqual(derivedInputKey, storedKeyBuffer);
 }
 
 function studentIdToEmail(studentId) {
@@ -60,13 +101,6 @@ function toClientRole(role) {
   if (role === UserRole.FACULTY) return 'instructor';
   if (role === UserRole.STUDENT) return 'student';
   return 'admin';
-}
-
-function mapRoleInput(role) {
-  const normalized = typeof role === 'string' ? role.trim().toLowerCase() : '';
-  if (normalized === 'instructor' || normalized === 'faculty') return UserRole.FACULTY;
-  if (normalized === 'student') return UserRole.STUDENT;
-  return null;
 }
 
 function toAuthClientUser(user) {
@@ -169,17 +203,17 @@ app.get('/health', async (_req, res) => {
 // AUTH
 app.post('/auth/register', async (req, res) => {
   try {
-    let { firstName, lastName, email, password, role } = req.body;
+    let { firstName, lastName, email, password } = req.body;
 
     firstName = typeof firstName === 'string' ? firstName.trim() : '';
     lastName = typeof lastName === 'string' ? lastName.trim() : '';
     email = typeof email === 'string' ? email.trim().toLowerCase() : '';
     password = typeof password === 'string' ? password : '';
-    const dbRole = mapRoleInput(role);
+    const dbRole = UserRole.FACULTY;
 
-    if (!firstName || !lastName || !email || !password || !dbRole) {
+    if (!firstName || !lastName || !email || !password) {
       return res.status(400).json({
-        error: 'firstName, lastName, email, password, and valid role are required',
+        error: 'firstName, lastName, email, and password are required',
       });
     }
 
@@ -192,13 +226,9 @@ app.post('/auth/register', async (req, res) => {
         firstName,
         lastName,
         email,
-        password,
+        password: hashPassword(password),
         role: dbRole,
-        ...(dbRole === UserRole.FACULTY
-          ? { facultyProfile: { create: {} } }
-          : dbRole === UserRole.STUDENT
-            ? { studentProfile: { create: {} } }
-            : {}),
+        facultyProfile: { create: {} },
       },
       include: {
         studentProfile: true,
@@ -234,8 +264,21 @@ app.post('/auth/login', async (req, res) => {
       },
     });
 
-    if (!user || user.password !== password) {
+    if (!user || !verifyPassword(password, user.password)) {
       return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    if (!isHashedPassword(user.password)) {
+      const upgradedHash = hashPassword(password);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { password: upgradedHash },
+      });
+      user.password = upgradedHash;
+    }
+
+    if (user.role !== UserRole.FACULTY) {
+      return res.status(403).json({ error: 'Student dashboard login is disabled' });
     }
 
     res.json(toAuthClientUser(user));
@@ -398,7 +441,7 @@ app.post('/courses', async (req, res) => {
           firstName: facultyFirstName || 'Instructor',
           lastName: facultyLastName || 'User',
           role: UserRole.FACULTY,
-          password: `faculty_${Math.random().toString(36).slice(2, 12)}`,
+          password: hashPassword(`faculty_${Math.random().toString(36).slice(2, 12)}`),
           facultyProfile: {
             create: {},
           },
@@ -727,14 +770,12 @@ app.post('/attendance', async (req, res) => {
 
 // POST /attendance/check-in
 // Body: { code, studentId, firstName, lastName, status? }
-// `email` is accepted as a temporary fallback for the legacy student dashboard.
 app.post('/attendance/check-in', async (req, res) => {
   try {
-    let { code, studentId, email, firstName, lastName, status } = req.body;
+    let { code, studentId, firstName, lastName, status } = req.body;
 
     code = normalizeCode(code);
     studentId = normalizeStudentId(studentId);
-    email = typeof email === 'string' ? email.trim().toLowerCase() : '';
     firstName = typeof firstName === 'string' ? firstName.trim() : '';
     lastName = typeof lastName === 'string' ? lastName.trim() : '';
 
@@ -742,8 +783,12 @@ app.post('/attendance/check-in', async (req, res) => {
       return res.status(400).json({ error: 'code is required' });
     }
 
-    if (!studentId && !email) {
+    if (!studentId) {
       return res.status(400).json({ error: 'studentId is required' });
+    }
+
+    if (!firstName || !lastName) {
+      return res.status(400).json({ error: 'firstName and lastName are required' });
     }
 
     if (!status) {
@@ -773,7 +818,7 @@ app.post('/attendance/check-in', async (req, res) => {
       return res.status(404).json({ error: 'Invalid or expired check-in code' });
     }
 
-    const lookupEmail = studentId ? studentIdToEmail(studentId) : email;
+    const lookupEmail = studentIdToEmail(studentId);
 
     let student = await prisma.user.findUnique({
       where: { email: lookupEmail },
@@ -793,7 +838,7 @@ app.post('/attendance/check-in', async (req, res) => {
           firstName: firstName || 'Student',
           lastName: lastName || 'User',
           role: UserRole.STUDENT,
-          password: `checkin_${Math.random().toString(36).slice(2, 12)}`,
+          password: hashPassword(`checkin_${Math.random().toString(36).slice(2, 12)}`),
           studentProfile: {
             create: {},
           },

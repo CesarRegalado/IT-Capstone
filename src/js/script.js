@@ -188,7 +188,7 @@ function initializeFormHandlers() {
             firstName: document.getElementById('first_name').value.trim(),
             lastName: document.getElementById('last_name').value.trim(),
             email: document.getElementById('register_email').value.trim(),
-            role: document.getElementById('user_role').value,
+            role: 'instructor',
             password: document.getElementById('register_password').value,
             confirmPassword: document.getElementById('confirm_password').value
         };
@@ -197,10 +197,6 @@ function initializeFormHandlers() {
         
         // Validation
         let isValid = true;
-        if (!formData.role) {
-            AuthUtils.showError('user_role', 'Select your role');
-            isValid = false;
-        }
         if (!AuthUtils.validateName(formData.firstName)) {
             AuthUtils.showError('first_name', 'Please enter a valid first name');
             isValid = false;

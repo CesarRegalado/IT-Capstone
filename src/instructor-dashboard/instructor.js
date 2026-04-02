@@ -1,4 +1,4 @@
-// Instructor Dashboard Functionality
+﻿// Instructor Dashboard Functionality
 class InstructorDashboard {
     constructor() {
         this.currentUser = null;
@@ -17,7 +17,6 @@ class InstructorDashboard {
         this.currentSection = 'courses';
         this.projectorWindow = null;
         this.navigationHistory = [];
-        this.pendingStudents = new Map(); // courseId -> array of pending students
         
         this.initializeApp();
     }
@@ -234,7 +233,6 @@ class InstructorDashboard {
                     lastName: this.currentUser.lastName
                 };
             }
-            this.addToGlobalCourseRegistry(course);
         });
 
         this.ensureStudentCourseEnrollments();
@@ -529,6 +527,24 @@ class InstructorDashboard {
         }
     }
 
+    formatScheduleTime(timeValue) {
+        if (typeof timeValue !== 'string' || !timeValue.includes(':')) {
+            return timeValue || '';
+        }
+
+        const [hoursRaw, minutesRaw] = timeValue.split(':');
+        const hours = Number.parseInt(hoursRaw, 10);
+        const minutes = Number.parseInt(minutesRaw, 10);
+
+        if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+            return timeValue;
+        }
+
+        const hour12 = ((hours + 11) % 12) + 1;
+        const period = hours >= 12 ? 'PM' : 'AM';
+        return `${hour12}:${String(minutes).padStart(2, '0')} ${period}`;
+    }
+
     createCourseCard(course) {
         const studentCount = this.getStudentCountForCourse(course.id);
         
@@ -541,7 +557,7 @@ class InstructorDashboard {
                 <div class="course_info">
                     <p><i class="fas fa-users"></i> ${studentCount} students enrolled</p>
                     ${course.schedule ? `
-                        <p><i class="fas fa-clock"></i> ${course.schedule.days.join(', ')} ${course.schedule.startTime} - ${course.schedule.endTime}</p>
+                        <p><i class="fas fa-clock"></i> ${course.schedule.days.join(', ')} ${this.formatScheduleTime(course.schedule.startTime)} - ${this.formatScheduleTime(course.schedule.endTime)}</p>
                         <p><i class="fas fa-map-marker-alt"></i> ${course.schedule.location}</p>
                     ` : ''}
                 </div>
@@ -600,12 +616,6 @@ class InstructorDashboard {
                 }
             });
             
-            // Remove from global registry
-            this.removeFromGlobalCourseRegistry(course.code);
-            
-            // Remove pending students for this course
-            this.removePendingStudentsForCourse(courseId);
-            
             if (this.currentCourse && this.currentCourse.id === courseId) {
                 this.currentCourse = null;
             }
@@ -624,28 +634,6 @@ class InstructorDashboard {
             if (this.currentSection === 'course_management' || this.currentSection === 'course_details') {
                 this.switchSection('courses');
             }
-        }
-    }
-
-    removeFromGlobalCourseRegistry(courseCode) {
-        try {
-            let registry = JSON.parse(localStorage.getItem('globalCourseRegistry') || '[]');
-            registry = registry.filter(c => c.code !== courseCode);
-            localStorage.setItem('globalCourseRegistry', JSON.stringify(registry));
-            console.log('Course removed from global registry:', courseCode);
-        } catch (error) {
-            console.error('Error removing course from registry:', error);
-        }
-    }
-
-    removePendingStudentsForCourse(courseId) {
-        try {
-            let allPending = JSON.parse(localStorage.getItem('pendingStudents') || '{}');
-            delete allPending[courseId];
-            localStorage.setItem('pendingStudents', JSON.stringify(allPending));
-            this.pendingStudents.delete(courseId);
-        } catch (error) {
-            console.error('Error removing pending students:', error);
         }
     }
 
@@ -773,7 +761,7 @@ class InstructorDashboard {
         if (courseStudents.length === 0) {
             container.innerHTML = `
                 <tr>
-                    <td colspan="6" style="text-align: center; padding: 40px; color: #666;">
+                    <td colspan="5" style="text-align: center; padding: 40px; color: #666;">
                         <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 10px; display: block;"></i>
                         No students enrolled in this course
                     </td>
@@ -808,7 +796,6 @@ class InstructorDashboard {
             <tr data-student-id="${student.id}">
                 <td>${this.escapeHtml(student.universityId)}</td>
                 <td>${this.escapeHtml(student.firstName + ' ' + student.lastName)}</td>
-                <td>${this.escapeHtml(student.email)}</td>
                 <td><span class="attendance_rate">${attendanceRate}%</span></td>
                 <td>
                     <span class="current_status ${currentStatus.toLowerCase()}" id="status_${student.id}">
@@ -1750,7 +1737,6 @@ class InstructorDashboard {
                     <tr>
                         <td class="student-id" title="${student.universityId}">${student.universityId}</td>
                         <td class="student-name" title="${student.firstName} ${student.lastName}">${student.firstName} ${student.lastName}</td>
-                        <td class="student-email" title="${student.email}">${student.email}</td>
                         <td class="student-status">
                             <select class="status_select_clean" data-student-id="${student.id}" onchange="instructorDashboard.updateAttendanceStatus('${student.id}', this.value)">
                                 <option value="PRESENT" ${currentStatus === 'PRESENT' ? 'selected' : ''}>Present</option>
@@ -1769,7 +1755,6 @@ class InstructorDashboard {
                     <tr>
                         <td class="student-id" title="${student.universityId}">${student.universityId}</td>
                         <td class="student-name" title="${student.firstName} ${student.lastName}">${student.firstName} ${student.lastName}</td>
-                        <td class="student-email" title="${student.email}">${student.email}</td>
                         <td class="student-status">
                             <span class="status_badge ${statusClass}">
                                 <i class="fas ${statusIcon}"></i>
@@ -1788,7 +1773,6 @@ class InstructorDashboard {
                     <tr>
                         <th class="col-id">Student ID</th>
                         <th class="col-name">Name</th>
-                        <th class="col-email">Email</th>
                         <th class="col-status">Status</th>
                         <th class="col-time">Check-in Time</th>
                     </tr>
@@ -1951,9 +1935,18 @@ class InstructorDashboard {
             this.showToast('Please fill in all required fields');
             return;
         }
+
+        const selectedDays = Array.from(
+            sessionDays.querySelectorAll('input[type="checkbox"]:checked')
+        ).map((input) => input.value);
+
+        if (selectedDays.length === 0) {
+            this.showToast('Please select at least one class day');
+            return;
+        }
         
         const localSchedule = {
-            days: Array.from(sessionDays.selectedOptions).map(opt => opt.value),
+            days: selectedDays,
             startTime: sessionStartTime.value,
             endTime: sessionEndTime.value,
             location: sessionLocation.value
@@ -2012,9 +2005,6 @@ class InstructorDashboard {
 
             this.courses.push(courseData);
 
-            // Add to global course registry for students to find
-            this.addToGlobalCourseRegistry(courseData);
-
             this.closeCourseModal();
             this.renderCourses();
             this.saveAppState();
@@ -2049,29 +2039,6 @@ class InstructorDashboard {
             }
         };
     */
-
-    addToGlobalCourseRegistry(course) {
-        try {
-            // Get existing registry from localStorage
-            let registry = JSON.parse(localStorage.getItem('globalCourseRegistry') || '[]');
-            
-            // Check if course code already exists
-            const existingIndex = registry.findIndex(c => c.code === course.code);
-            if (existingIndex !== -1) {
-                // Update existing course
-                registry[existingIndex] = course;
-            } else {
-                // Add new course
-                registry.push(course);
-            }
-            
-            // Save back to localStorage
-            localStorage.setItem('globalCourseRegistry', JSON.stringify(registry));
-            console.log('Course added to global registry:', course.code);
-        } catch (error) {
-            console.error('Error adding course to registry:', error);
-        }
-    }
 
     //Report Export stuff. csv or txt
     exportCourseReport(courseId, format = 'csv') {
@@ -2108,7 +2075,7 @@ class InstructorDashboard {
             const sessionTime = new Date(session.startsAt).toLocaleTimeString();
             
             csvContent += `SESSION: ${sessionDate} at ${sessionTime}\n`;
-            csvContent += 'Student ID,Student Name,Email,Status,Check-in Time\n';
+            csvContent += 'Student ID,Student Name,Status,Check-in Time\n';
             
             const courseStudents = this.getStudentsForCourse(course.id);
             const attendanceMap = new Map();
@@ -2124,7 +2091,7 @@ class InstructorDashboard {
                 const checkInTime = record && record.checkedInAt ? 
                     new Date(record.checkedInAt).toLocaleTimeString() : 'N/A';
                 
-                csvContent += `"${student.universityId}","${student.firstName} ${student.lastName}","${student.email}","${status}","${checkInTime}"\n`;
+                csvContent += `"${student.universityId}","${student.firstName} ${student.lastName}","${status}","${checkInTime}"\n`;
             });
             
             csvContent += '\n';
@@ -2148,13 +2115,13 @@ class InstructorDashboard {
             const totalStudents = this.getStudentCountForCourse(course.id);
             
             txtContent += `SESSION ${index + 1}\n`;
-            txtContent += `────────${'─'.repeat((index + 1).toString().length)}\n`;
+            txtContent += `â”€â”€â”€â”€â”€â”€â”€â”€${'â”€'.repeat((index + 1).toString().length)}\n`;
             txtContent += `Date: ${sessionDate}\n`;
             txtContent += `Time: ${sessionTime}\n`;
             txtContent += `Attendance: ${presentCount}/${totalStudents} (${Math.round((presentCount/totalStudents)*100)}%)\n\n`;
             
             txtContent += `ATTENDANCE LIST:\n`;
-            txtContent += `────────────────\n`;
+            txtContent += `â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n`;
             
             const courseStudents = this.getStudentsForCourse(course.id);
             const attendanceMap = new Map();
@@ -2170,8 +2137,7 @@ class InstructorDashboard {
                 const checkInTime = record && record.checkedInAt ? 
                     new Date(record.checkedInAt).toLocaleTimeString() : 'N/A';
                 
-                txtContent += `• ${student.universityId} - ${student.firstName} ${student.lastName}\n`;
-                txtContent += `  Email: ${student.email}\n`;
+                txtContent += `â€¢ ${student.universityId} - ${student.firstName} ${student.lastName}\n`;
                 txtContent += `  Status: ${status}`;
                 if (status !== 'ABSENT') {
                     txtContent += `, Checked in: ${checkInTime}`;
@@ -2223,7 +2189,7 @@ class InstructorDashboard {
         csvContent += `Instructor: ${this.currentUser.firstName} ${this.currentUser.lastName}\n`;
         csvContent += `Report Generated: ${new Date().toLocaleString()}\n\n`;
         
-        csvContent += 'Student ID,Student Name,Email,Status,Check-in Time\n';
+        csvContent += 'Student ID,Student Name,Status,Check-in Time\n';
         
         const courseStudents = this.getStudentsForCourse(course.id);
         const attendanceMap = new Map();
@@ -2239,7 +2205,7 @@ class InstructorDashboard {
             const checkInTime = record && record.checkedInAt ? 
                 new Date(record.checkedInAt).toLocaleTimeString() : 'N/A';
             
-            csvContent += `"${student.universityId}","${student.firstName} ${student.lastName}","${student.email}","${status}","${checkInTime}"\n`;
+            csvContent += `"${student.universityId}","${student.firstName} ${student.lastName}","${status}","${checkInTime}"\n`;
         });
 
         return csvContent;
@@ -2262,7 +2228,7 @@ class InstructorDashboard {
         txtContent += `Attendance Summary: ${presentCount}/${totalStudents} students present\n\n`;
         
         txtContent += `ATTENDANCE DETAILS:\n`;
-        txtContent += `──────────────────\n\n`;
+        txtContent += `â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n\n`;
         
         const courseStudents = this.getStudentsForCourse(course.id);
         const attendanceMap = new Map();
@@ -2278,8 +2244,7 @@ class InstructorDashboard {
             const checkInTime = record && record.checkedInAt ? 
                 new Date(record.checkedInAt).toLocaleTimeString() : 'N/A';
             
-            txtContent += `• ${student.universityId} - ${student.firstName} ${student.lastName}\n`;
-            txtContent += `  Email: ${student.email}\n`;
+            txtContent += `â€¢ ${student.universityId} - ${student.firstName} ${student.lastName}\n`;
             txtContent += `  Status: ${status}`;
             if (status !== 'ABSENT') {
                 txtContent += `, Checked in: ${checkInTime}`;
@@ -2325,7 +2290,7 @@ class InstructorDashboard {
                 const sessionTime = new Date(session.startsAt).toLocaleTimeString();
                 
                 csvContent += `Session: ${sessionDate} at ${sessionTime}\n`;
-                csvContent += 'Student ID,Student Name,Email,Status,Check-in Time\n';
+                csvContent += 'Student ID,Student Name,Status,Check-in Time\n';
                 
                 const courseStudents = this.getStudentsForCourse(course.id);
                 const attendanceMap = new Map();
@@ -2341,7 +2306,7 @@ class InstructorDashboard {
                     const checkInTime = record && record.checkedInAt ? 
                         new Date(record.checkedInAt).toLocaleTimeString() : 'N/A';
                     
-                    csvContent += `"${student.universityId}","${student.firstName} ${student.lastName}","${student.email}","${status}","${checkInTime}"\n`;
+                    csvContent += `"${student.universityId}","${student.firstName} ${student.lastName}","${status}","${checkInTime}"\n`;
                 });
                 
                 csvContent += '\n';
@@ -2361,13 +2326,13 @@ class InstructorDashboard {
         
         this.courses.forEach((course, courseIndex) => {
             txtContent += `COURSE ${courseIndex + 1}: ${course.title} (${course.code})\n`;
-            txtContent += `${'═'.repeat(60)}\n`;
+            txtContent += `${'â•'.repeat(60)}\n`;
             txtContent += `Semester: ${course.semester}\n\n`;
             
             const courseSessions = this.sessions.filter(s => s.courseId === course.id);
             if (courseSessions.length === 0) {
                 txtContent += `No sessions recorded for this course.\n\n`;
-                txtContent += `${'─'.repeat(60)}\n\n`;
+                txtContent += `${'â”€'.repeat(60)}\n\n`;
                 return;
             }
             
@@ -2383,7 +2348,7 @@ class InstructorDashboard {
                 txtContent += `Attendance: ${presentCount}/${totalStudents} students\n\n`;
             });
             
-            txtContent += `${'─'.repeat(60)}\n\n`;
+            txtContent += `${'â”€'.repeat(60)}\n\n`;
         });
 
         return txtContent;
@@ -2543,7 +2508,6 @@ class InstructorDashboard {
         const modal = document.getElementById('manage_students_modal');
         if (modal) {
             modal.classList.remove('hidden');
-            this.loadPendingStudents();
             this.loadEnrolledStudents();
             this.setupManageStudentsTabs();
         }
@@ -2587,25 +2551,33 @@ class InstructorDashboard {
         document.getElementById(`${method}_add`).classList.remove('hidden');
     }
 
+    getStudentEmailFromUniversityId(universityId) {
+        const normalizedId = String(universityId || '').trim().toUpperCase();
+        if (!normalizedId) return '';
+        const safeLocalPart = normalizedId.replace(/[^A-Z0-9._-]/g, '').toLowerCase();
+        return `${safeLocalPart}@studentid.attendance.local`;
+    }
+
     addStudentManually() {
         const studentId = document.getElementById('manual_student_id').value.trim();
         const firstName = document.getElementById('manual_first_name').value.trim();
         const lastName = document.getElementById('manual_last_name').value.trim();
-        const email = document.getElementById('manual_email').value.trim();
+        const normalizedStudentId = studentId.toUpperCase();
+        const email = this.getStudentEmailFromUniversityId(normalizedStudentId);
 
-        if (!studentId || !firstName || !lastName || !email) {
+        if (!normalizedStudentId || !firstName || !lastName) {
             this.showToast('Please fill in all fields');
             return;
         }
 
         // Check if student already exists
-        let student = this.students.find(s => s.universityId === studentId);
+        let student = this.students.find(s => s.universityId === normalizedStudentId);
         
         if (!student) {
             // Create new student
             student = {
                 id: 'student_' + Date.now(),
-                universityId: studentId,
+                universityId: normalizedStudentId,
                 firstName: firstName,
                 lastName: lastName,
                 email: email,
@@ -2613,6 +2585,11 @@ class InstructorDashboard {
             };
             this.students.push(student);
         } else {
+            student.firstName = firstName;
+            student.lastName = lastName;
+            if (!student.email) {
+                student.email = email;
+            }
             // Add course to existing student
             if (!student.courses) student.courses = [];
             if (!student.courses.includes(this.currentCourse.id)) {
@@ -2639,8 +2616,15 @@ class InstructorDashboard {
 
         lines.forEach(line => {
             const parts = line.split(',').map(p => p.trim());
-            if (parts.length >= 4) {
-                const [studentId, firstName, lastName, email] = parts;
+            if (parts.length >= 3) {
+                const [studentIdRaw, firstName, lastName] = parts;
+                const studentId = String(studentIdRaw || '').toUpperCase();
+                const email = this.getStudentEmailFromUniversityId(studentId);
+
+                if (!studentId || !firstName || !lastName) {
+                    skipped++;
+                    return;
+                }
                 
                 let student = this.students.find(s => s.universityId === studentId);
                 
@@ -2656,6 +2640,9 @@ class InstructorDashboard {
                     this.students.push(student);
                     added++;
                 } else {
+                    if (!student.email) {
+                        student.email = email;
+                    }
                     if (!student.courses) student.courses = [];
                     if (!student.courses.includes(this.currentCourse.id)) {
                         student.courses.push(this.currentCourse.id);
@@ -2664,6 +2651,8 @@ class InstructorDashboard {
                         skipped++;
                     }
                 }
+            } else {
+                skipped++;
             }
         });
 
@@ -2673,130 +2662,6 @@ class InstructorDashboard {
         this.renderStudentsTable(this.currentCourse.id);
         this.saveAppState();
     }
-
-    loadPendingStudents() {
-        const courseId = this.currentCourse.id;
-        
-        // Load from localStorage
-        let pending = [];
-        try {
-            const allPending = JSON.parse(localStorage.getItem('pendingStudents') || '{}');
-            pending = allPending[courseId] || [];
-        } catch (error) {
-            console.error('Error loading pending students:', error);
-        }
-        
-        // Also check the in-memory map (for backwards compatibility)
-        const memoryPending = this.pendingStudents.get(courseId) || [];
-        
-        // Merge both sources (remove duplicates by student id)
-        const mergedMap = new Map();
-        [...pending, ...memoryPending].forEach(student => {
-            mergedMap.set(student.id, student);
-        });
-        pending = Array.from(mergedMap.values());
-        
-        document.getElementById('pending_count').textContent = pending.length;
-        
-        const container = document.getElementById('pending_students_list');
-        if (pending.length === 0) {
-            container.innerHTML = '<div class="empty_message">No pending students</div>';
-        } else {
-            container.innerHTML = pending.map(student => `
-                <div class="pending_student_item">
-                    <div class="student_info">
-                        <div class="student_name">${this.escapeHtml(student.firstName)} ${this.escapeHtml(student.lastName)}</div>
-                        <div class="student_details">${this.escapeHtml(student.universityId)} • ${this.escapeHtml(student.email)}</div>
-                    </div>
-                    <button class="btn btn_primary btn_small" onclick="instructorDashboard.approvePendingStudent('${student.id}')">
-                        <i class="fas fa-check"></i>
-                        Approve
-                    </button>
-                </div>
-            `).join('');
-        }
-    }
-
-    approvePendingStudent(studentId) {
-        const courseId = this.currentCourse.id;
-        
-        // Load pending students from localStorage
-        let allPending = {};
-        try {
-            allPending = JSON.parse(localStorage.getItem('pendingStudents') || '{}');
-        } catch (error) {
-            console.error('Error loading pending students:', error);
-        }
-        
-        const pending = allPending[courseId] || [];
-        const studentIndex = pending.findIndex(s => s.id === studentId);
-        
-        if (studentIndex !== -1) {
-            const pendingStudent = pending[studentIndex];
-            
-            console.log('Approving pending student:', pendingStudent);
-            
-            // IMPORTANT: Match by email or universityId, NOT by ID
-            // This prevents conflicts between test data and real students
-            let existingStudent = this.students.find(s => 
-                s.email === pendingStudent.email || 
-                s.universityId === pendingStudent.universityId
-            );
-            
-            if (existingStudent) {
-                console.log('Found existing student by email/universityId:', existingStudent);
-                
-                // Update the existing student's info with pending student's info
-                // This ensures the correct name is used
-                existingStudent.firstName = pendingStudent.firstName;
-                existingStudent.lastName = pendingStudent.lastName;
-                existingStudent.email = pendingStudent.email;
-                existingStudent.universityId = pendingStudent.universityId;
-                
-                // Add the course if not already enrolled
-                if (!existingStudent.courses) existingStudent.courses = [];
-                if (!existingStudent.courses.includes(courseId)) {
-                    existingStudent.courses.push(courseId);
-                }
-                
-                console.log('Updated existing student:', existingStudent);
-            } else {
-                console.log('Creating new student record');
-                // Create new student record with the EXACT info from pending
-                existingStudent = {
-                    id: pendingStudent.id,
-                    universityId: pendingStudent.universityId,
-                    firstName: pendingStudent.firstName,
-                    lastName: pendingStudent.lastName,
-                    email: pendingStudent.email,
-                    courses: [courseId]
-                };
-                this.students.push(existingStudent);
-                console.log('Created new student:', existingStudent);
-            }
-            
-            // Remove from pending list
-            pending.splice(studentIndex, 1);
-            allPending[courseId] = pending;
-            
-            // Save back to localStorage
-            try {
-                localStorage.setItem('pendingStudents', JSON.stringify(allPending));
-            } catch (error) {
-                console.error('Error saving pending students:', error);
-            }
-            
-            // Also update in-memory map
-            this.pendingStudents.set(courseId, pending);
-            
-            this.showToast(`Approved ${pendingStudent.firstName} ${pendingStudent.lastName}`);
-            this.loadPendingStudents();
-            this.loadEnrolledStudents();
-            this.renderStudentsTable(courseId);
-            this.saveAppState();
-        }
-    }
-
     loadEnrolledStudents() {
         const courseStudents = this.getStudentsForCourse(this.currentCourse.id);
         const container = document.getElementById('enrolled_students_list');
@@ -2810,7 +2675,7 @@ class InstructorDashboard {
                     <div class="enrolled_student_item">
                         <div class="student_info">
                             <div class="student_name">${this.escapeHtml(student.firstName)} ${this.escapeHtml(student.lastName)}</div>
-                            <div class="student_details">${this.escapeHtml(student.universityId)} • ${this.escapeHtml(student.email)}</div>
+                            <div class="student_details">${this.escapeHtml(student.universityId)}</div>
                             <div class="student_stats">Attendance: ${attendanceRate}%</div>
                         </div>
                         <button class="btn btn_danger btn_small" onclick="instructorDashboard.removeStudentFromCourse('${student.id}')">
@@ -3258,11 +3123,6 @@ const cleanModalCSS = `
     min-width: 180px;
 }
 
-.clean_table .col-email {
-    width: 220px;
-    min-width: 220px;
-}
-
 .clean_table .col-status {
     width: 120px;
     min-width: 120px;
@@ -3274,16 +3134,10 @@ const cleanModalCSS = `
 }
 
 /* Handle long text */
-.student-id, .student-name, .student-email, .checkin-time {
+.student-id, .student-name, .checkin-time {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.student-email {
-    white-space: normal;
-    word-break: break-word;
-    max-width: 220px;
 }
 
 .status_badge {
@@ -3546,13 +3400,12 @@ const cleanModalCSS = `
 }
 
 /* Tooltip for truncated content */
-.student-id, .student-name, .student-email {
+.student-id, .student-name {
     position: relative;
 }
 
 .student-id:hover::after,
-.student-name:hover::after,
-.student-email:hover::after {
+.student-name:hover::after {
     content: attr(title);
     position: absolute;
     bottom: 100%;
@@ -3606,3 +3459,4 @@ try {
 } catch (error) {
     console.warn('Could not inject modal CSS:', error);
 }
+
