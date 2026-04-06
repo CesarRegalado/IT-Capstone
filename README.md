@@ -7,6 +7,8 @@ new working version with real backend + database connections for the core instru
 Working Features
 - Instructor registration (db-backed)
 - Instructor login (db-backed)
+- Email verification token flow for new instructor accounts
+- Password reset token flow (forgot password + reset link)
 - Create course/class (saved to database)
 - Delete course/class (deletes from database, including related sessions/attendance)
 - Course schedule persistence (days, time, location saved in db)
@@ -68,9 +70,16 @@ PWA
 - Not required for the core attendance workflow.
 
 Known Limitations / Future Improvements
-- No email verification / password reset backend flow yet
+- Email delivery provider requires configuration (`EMAIL_MODE=resend` + API key)
 - Passkey/WebAuthn is removed from active UI (future enhancement only)
 - Local phone testing may require LAN IP + firewall/CORS configuration
+
+Environment Variables (Email/Auth)
+- `DATABASE_URL` - Postgres connection string
+- `APP_BASE_URL` - Frontend base URL used in verification/reset links (example: `http://localhost:5173` or Amplify URL)
+- `EMAIL_MODE` - `console` (default, logs links) or `resend` (sends real emails)
+- `RESEND_API_KEY` - Required when `EMAIL_MODE=resend`
+- `MAIL_FROM` - Verified sender address for email provider
 
 
 Tech Stack

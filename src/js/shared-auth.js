@@ -126,6 +126,55 @@ class AuthUtils {
         });
     }
 
+    static async apiVerifyEmail(token) {
+        return this.apiRequest('/auth/verify-email', {
+            method: 'POST',
+            body: JSON.stringify({ token })
+        });
+    }
+
+    static async apiResendVerification(email) {
+        return this.apiRequest('/auth/resend-verification', {
+            method: 'POST',
+            body: JSON.stringify({ email })
+        });
+    }
+
+    static async apiForgotPassword(email) {
+        return this.apiRequest('/auth/forgot-password', {
+            method: 'POST',
+            body: JSON.stringify({ email })
+        });
+    }
+
+    static async apiValidateResetToken(token) {
+        return this.apiRequest('/auth/reset-password/validate', {
+            method: 'POST',
+            body: JSON.stringify({ token })
+        });
+    }
+
+    static async apiResetPassword(token, password) {
+        return this.apiRequest('/auth/reset-password', {
+            method: 'POST',
+            body: JSON.stringify({ token, password })
+        });
+    }
+
+    static updatePasswordStrength(inputElement, strengthBarElement) {
+        const password = inputElement?.value || '';
+        let score = 0;
+        if (password.length >= 8) score += 1;
+        if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score += 1;
+        if (/\d/.test(password)) score += 1;
+        if (/[^A-Za-z0-9]/.test(password)) score += 1;
+
+        const widths = ['0%', '25%', '50%', '75%', '100%'];
+        const colors = ['#d9534f', '#d9534f', '#f0ad4e', '#5bc0de', '#5cb85c'];
+        strengthBarElement.style.width = widths[Math.min(score, 4)];
+        strengthBarElement.style.backgroundColor = colors[Math.min(score, 4)];
+    }
+
     // Find user in both student and instructor databases
     static async findUserByEmail(email) {
         // Check instructors first
@@ -158,6 +207,8 @@ class AuthUtils {
                 return false;
             }
 
+            sessionStorage.removeItem('instructorAppState');
+            sessionStorage.removeItem('currentSection');
             sessionStorage.setItem('currentInstructor', JSON.stringify(user));
             this.showToast(`Welcome, Professor ${user.lastName}!`, 'success');
             setTimeout(() => {

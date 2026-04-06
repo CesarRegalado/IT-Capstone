@@ -1,12 +1,109 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
+import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'crypto';
 import { PrismaClient, AttendanceStatus, UserRole } from '@prisma/client';
 
 const app = express();
 const prisma = new PrismaClient();
 const validAttendanceStatuses = Object.values(AttendanceStatus);
 const CHECKIN_ID_DOMAIN = 'studentid.attendance.local';
+const EMAIL_VERIFICATION_TTL_MINUTES = 60;
+const PASSWORD_RESET_TTL_MINUTES = 30;
+const EMAIL_MODE = process.env.EMAIL_MODE || 'console';
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const MAIL_FROM = process.env.MAIL_FROM || 'onboarding@resend.dev';
+
+function hashToken(rawToken) {
+  return createHash('sha256').update(rawToken).digest('hex');
+}
+
+function createRawToken() {
+  return randomBytes(32).toString('hex');
+}
+
+function toExpiryDate(minutesFromNow) {
+  return new Date(Date.now() + minutesFromNow * 60 * 1000);
+}
+
+function resolveAppBaseUrl(req) {
+  const fromEnv = process.env.APP_BASE_URL;
+  if (typeof fromEnv === 'string' && fromEnv.trim()) {
+    return fromEnv.trim().replace(/\/$/, '');
+  }
+  const fromOrigin = req?.headers?.origin;
+  if (typeof fromOrigin === 'string' && fromOrigin.trim()) {
+    return fromOrigin.trim().replace(/\/$/, '');
+  }
+  return 'http://localhost:5173';
+}
+
+async function sendEmailMessage({ to, subject, html, text }) {
+  if (EMAIL_MODE !== 'resend') {
+    console.log(`[EMAIL ${EMAIL_MODE}] To: ${to} | Subject: ${subject}`);
+    if (text) {
+      console.log(`[EMAIL ${EMAIL_MODE}] Body: ${text}`);
+    }
+    return { sent: false, provider: EMAIL_MODE };
+  }
+
+  if (!RESEND_API_KEY) {
+    throw new Error('EMAIL_MODE is resend but RESEND_API_KEY is missing');
+  }
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: MAIL_FROM,
+      to: [to],
+      subject,
+      html,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorPayload = await response.text();
+    throw new Error(`Resend failed: ${response.status} ${errorPayload}`);
+  }
+
+  return { sent: true, provider: 'resend' };
+}
+
+async function createEmailVerificationToken(userId) {
+  const rawToken = createRawToken();
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = toExpiryDate(EMAIL_VERIFICATION_TTL_MINUTES);
+
+  await prisma.emailVerificationToken.create({
+    data: {
+      userId,
+      tokenHash,
+      expiresAt,
+    },
+  });
+
+  return { rawToken, expiresAt };
+}
+
+async function createPasswordResetToken(userId) {
+  const rawToken = createRawToken();
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = toExpiryDate(PASSWORD_RESET_TTL_MINUTES);
+
+  await prisma.passwordResetToken.create({
+    data: {
+      userId,
+      tokenHash,
+      expiresAt,
+    },
+  });
+
+  return { rawToken, expiresAt };
+}
 
 function normalizeCode(code) {
   return typeof code === 'string' ? code.trim().toUpperCase() : '';
@@ -228,6 +325,7 @@ app.post('/auth/register', async (req, res) => {
         email,
         password: hashPassword(password),
         role: dbRole,
+        emailVerifiedAt: null,
         facultyProfile: { create: {} },
       },
       include: {
@@ -236,7 +334,31 @@ app.post('/auth/register', async (req, res) => {
       },
     });
 
-    res.status(201).json(toAuthClientUser(user));
+    const { rawToken } = await createEmailVerificationToken(user.id);
+    const appBaseUrl = resolveAppBaseUrl(req);
+    const verifyUrl = `${appBaseUrl}/index.html?verifyToken=${encodeURIComponent(rawToken)}`;
+
+    try {
+      await sendEmailMessage({
+        to: user.email,
+        subject: 'Verify your Attendance Tracker account',
+        html: `
+          <p>Hello ${user.firstName},</p>
+          <p>Verify your instructor account by clicking the link below:</p>
+          <p><a href="${verifyUrl}">Verify account</a></p>
+          <p>This link expires in ${EMAIL_VERIFICATION_TTL_MINUTES} minutes.</p>
+        `,
+        text: `Verify your account: ${verifyUrl}`,
+      });
+    } catch (emailError) {
+      console.error('Failed to send verification email:', emailError);
+    }
+
+    res.status(201).json({
+      message: 'Account created. Please check your email to verify your account.',
+      email: user.email,
+      ...(EMAIL_MODE !== 'resend' ? { debugVerificationUrl: verifyUrl } : {}),
+    });
   } catch (e) {
     console.error(e);
     if (e.code === 'P2002') {
@@ -281,7 +403,231 @@ app.post('/auth/login', async (req, res) => {
       return res.status(403).json({ error: 'Student dashboard login is disabled' });
     }
 
+    if (!user.emailVerifiedAt) {
+      return res.status(403).json({
+        error: 'Please verify your email before logging in',
+        code: 'EMAIL_NOT_VERIFIED',
+      });
+    }
+
     res.json(toAuthClientUser(user));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/auth/verify-email', async (req, res) => {
+  try {
+    const rawToken = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+    if (!rawToken) {
+      return res.status(400).json({ error: 'token is required' });
+    }
+
+    const tokenHash = hashToken(rawToken);
+    const now = new Date();
+
+    const tokenRecord = await prisma.emailVerificationToken.findUnique({
+      where: { tokenHash },
+      include: { user: true },
+    });
+
+    if (!tokenRecord || tokenRecord.usedAt || tokenRecord.expiresAt <= now) {
+      return res.status(400).json({ error: 'Verification link is invalid or expired' });
+    }
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: tokenRecord.userId },
+        data: { emailVerifiedAt: now },
+      }),
+      prisma.emailVerificationToken.update({
+        where: { id: tokenRecord.id },
+        data: { usedAt: now },
+      }),
+    ]);
+
+    res.json({
+      ok: true,
+      message: 'Email verified successfully. You can now log in.',
+      email: tokenRecord.user.email,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/auth/resend-verification', async (req, res) => {
+  try {
+    let { email } = req.body;
+    email = typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+    if (!email) {
+      return res.status(400).json({ error: 'email is required' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user || user.role !== UserRole.FACULTY || user.emailVerifiedAt) {
+      return res.json({ ok: true, message: 'If this account exists, a verification email was sent.' });
+    }
+
+    const { rawToken } = await createEmailVerificationToken(user.id);
+    const appBaseUrl = resolveAppBaseUrl(req);
+    const verifyUrl = `${appBaseUrl}/index.html?verifyToken=${encodeURIComponent(rawToken)}`;
+
+    try {
+      await sendEmailMessage({
+        to: user.email,
+        subject: 'Verify your Attendance Tracker account',
+        html: `
+          <p>Hello ${user.firstName},</p>
+          <p>Use this link to verify your account:</p>
+          <p><a href="${verifyUrl}">Verify account</a></p>
+          <p>This link expires in ${EMAIL_VERIFICATION_TTL_MINUTES} minutes.</p>
+        `,
+        text: `Verify your account: ${verifyUrl}`,
+      });
+    } catch (emailError) {
+      console.error('Failed to send verification email:', emailError);
+    }
+
+    res.json({
+      ok: true,
+      message: 'If this account exists, a verification email was sent.',
+      ...(EMAIL_MODE !== 'resend' ? { debugVerificationUrl: verifyUrl } : {}),
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/auth/forgot-password', async (req, res) => {
+  try {
+    let { email } = req.body;
+    email = typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+    if (!email) {
+      return res.status(400).json({ error: 'email is required' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user || user.role !== UserRole.FACULTY) {
+      return res.json({ ok: true, message: 'If this account exists, a reset link was sent.' });
+    }
+
+    const { rawToken } = await createPasswordResetToken(user.id);
+    const appBaseUrl = resolveAppBaseUrl(req);
+    const resetUrl = `${appBaseUrl}/create_new_pass.html?token=${encodeURIComponent(rawToken)}`;
+
+    try {
+      await sendEmailMessage({
+        to: user.email,
+        subject: 'Reset your Attendance Tracker password',
+        html: `
+          <p>Hello ${user.firstName},</p>
+          <p>Use this link to reset your password:</p>
+          <p><a href="${resetUrl}">Reset password</a></p>
+          <p>This link expires in ${PASSWORD_RESET_TTL_MINUTES} minutes.</p>
+        `,
+        text: `Reset your password: ${resetUrl}`,
+      });
+    } catch (emailError) {
+      console.error('Failed to send password reset email:', emailError);
+    }
+
+    res.json({
+      ok: true,
+      message: 'If this account exists, a reset link was sent.',
+      ...(EMAIL_MODE !== 'resend' ? { debugResetUrl: resetUrl } : {}),
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/auth/reset-password/validate', async (req, res) => {
+  try {
+    const rawToken = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+    if (!rawToken) {
+      return res.status(400).json({ error: 'token is required' });
+    }
+
+    const tokenHash = hashToken(rawToken);
+    const now = new Date();
+
+    const tokenRecord = await prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+    });
+
+    const valid = Boolean(tokenRecord && !tokenRecord.usedAt && tokenRecord.expiresAt > now);
+    if (!valid) {
+      return res.status(400).json({ error: 'Reset link is invalid or expired' });
+    }
+
+    res.json({ ok: true, valid: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/auth/reset-password', async (req, res) => {
+  try {
+    const rawToken = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+    if (!rawToken || !password) {
+      return res.status(400).json({ error: 'token and password are required' });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    const tokenHash = hashToken(rawToken);
+    const now = new Date();
+
+    const tokenRecord = await prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!tokenRecord || tokenRecord.usedAt || tokenRecord.expiresAt <= now) {
+      return res.status(400).json({ error: 'Reset link is invalid or expired' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: tokenRecord.userId },
+        data: {
+          password: hashPassword(password),
+        },
+      });
+
+      await tx.passwordResetToken.update({
+        where: { id: tokenRecord.id },
+        data: { usedAt: now },
+      });
+
+      await tx.passwordResetToken.updateMany({
+        where: {
+          userId: tokenRecord.userId,
+          usedAt: null,
+          id: { not: tokenRecord.id },
+        },
+        data: { usedAt: now },
+      });
+    });
+
+    res.json({ ok: true, message: 'Password updated successfully' });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });

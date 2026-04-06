@@ -33,14 +33,17 @@ model User {
   firstName String
   lastName  String
   role      UserRole
-  password  String   // new field
+  password  String
   createdAt DateTime @default(now())
+  emailVerifiedAt DateTime?
 
   studentProfile StudentProfile?
   facultyProfile FacultyProfile?
 
   courses     Course[]     @relation("FacultyCourses")
   attendances Attendance[] @relation("StudentAttendance")
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens PasswordResetToken[]
 }
 
 model StudentProfile {
@@ -91,4 +94,30 @@ model Attendance {
   student User    @relation("StudentAttendance", fields: [studentUserId], references: [id], onDelete: Cascade)
 
   @@unique([studentUserId, sessionId]) // prevent double check-in
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

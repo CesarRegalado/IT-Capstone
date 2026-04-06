@@ -9,7 +9,7 @@ function initializeFormToggle() {
     const registerToggle = document.getElementById('register_toggle');
     const loginForm = document.getElementById('login_form');
     const registerForm = document.getElementById('register_form');
-    
+
     const switchForms = (showLogin) => {
         loginToggle.classList.toggle('active', showLogin);
         registerToggle.classList.toggle('active', !showLogin);
@@ -17,8 +17,7 @@ function initializeFormToggle() {
         registerForm.classList.toggle('active', !showLogin);
         loginForm.hidden = !showLogin;
         registerForm.hidden = showLogin;
-        
-        // Clear errors when switching forms
+
         document.querySelectorAll('.error_message').forEach(error => {
             error.style.display = 'none';
         });
@@ -26,9 +25,10 @@ function initializeFormToggle() {
             group.classList.remove('error');
         });
     };
-    
+
     loginToggle.addEventListener('click', () => switchForms(true));
     registerToggle.addEventListener('click', () => switchForms(false));
+    window.setAuthMode = (mode) => switchForms(mode !== 'register');
 }
 
 function initializeServiceWorker() {
@@ -47,38 +47,34 @@ function initializePWAInstall() {
     const installBtn = document.getElementById('install_btn');
     let deferredPrompt;
 
-    // Check if already installed
     if (window.matchMedia('(display-mode: standalone)').matches) {
         installBtn.style.display = 'none';
         return;
     }
 
-    // Show install button for ALL browsers by default
     installBtn.style.display = 'inline-flex';
 
-    // Listen for the beforeinstallprompt event (Chrome/Edge)
     window.addEventListener('beforeinstallprompt', (e) => {
         console.log('PWA install prompt available');
         e.preventDefault();
         deferredPrompt = e;
-        
+
         installBtn.onclick = async () => {
             if (deferredPrompt) {
                 deferredPrompt.prompt();
                 const { outcome } = await deferredPrompt.userChoice;
                 console.log('User response to install prompt:', outcome);
-                
+
                 if (outcome === 'accepted') {
                     installBtn.style.display = 'none';
                     AuthUtils.showToast('App installed successfully!', 'success');
                 }
-                
+
                 deferredPrompt = null;
             }
         };
     });
 
-    // Hide install button if app is already installed
     window.addEventListener('appinstalled', () => {
         console.log('PWA was installed');
         installBtn.style.display = 'none';
@@ -86,45 +82,42 @@ function initializePWAInstall() {
     });
 }
 
-function authenticateUser(email, password) {
-    console.log('Authenticating:', email);
-    console.log('Database contents:', Array.from(USER_DATABASE.students.keys()));
-    
-    for (const db of Object.values(USER_DATABASE)) {
-        const user = db.get(email);
-        if (user) {
-            console.log('Found user:', user);
-            console.log('Stored hash:', user.password);
-            console.log('Input hash:', AuthUtils.hashPassword(password));
-        }
-        if (user && user.password === AuthUtils.hashPassword(password)) {
-            return user;
-        }
-    }
-    return null;
-}
-
 function isEmailRegistered(email) {
     return USER_DATABASE.students.has(email) || USER_DATABASE.instructors.has(email);
 }
 
-function registerUser(userData) {
-    const db = userData.role === 'student' ? USER_DATABASE.students : USER_DATABASE.instructors;
-    const user = {
-        ...userData,
-        password: AuthUtils.hashPassword(userData.password),
-        createdAt: new Date().toISOString()
-    };
-    db.set(userData.email, user);
-    console.log('Registered user:', user);
-    console.log('Database after registration:', Array.from(USER_DATABASE.students.keys()));
+async function handleEmailVerificationFromLink() {
+    const params = new URLSearchParams(window.location.search);
+    const verifyToken = params.get('verifyToken');
+    if (!verifyToken) return;
+
+    try {
+        const result = await AuthUtils.apiVerifyEmail(verifyToken);
+        AuthUtils.showToast(result.message || 'Email verified. You can now log in.', 'success');
+
+        const emailInput = document.getElementById('login_email');
+        if (emailInput && result.email) {
+            emailInput.value = result.email;
+        }
+
+        if (typeof window.setAuthMode === 'function') {
+            window.setAuthMode('login');
+        }
+    } catch (error) {
+        console.error('Verification error:', error);
+        AuthUtils.showToast(error.message || 'Verification link is invalid or expired', 'error');
+    } finally {
+        params.delete('verifyToken');
+        const nextQuery = params.toString();
+        const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`;
+        window.history.replaceState({}, document.title, nextUrl);
+    }
 }
 
 function initializeFormHandlers() {
     const loginForm = document.getElementById('login_form');
     const registerForm = document.getElementById('register_form');
-    
-    // Real-time validation for login
+
     document.getElementById('login_email').addEventListener('blur', function() {
         const email = this.value.trim();
         if (email && !AuthUtils.validateEmail(email)) {
@@ -133,8 +126,7 @@ function initializeFormHandlers() {
             AuthUtils.clearError('login_email');
         }
     });
-    
-    // Real-time validation for register
+
     document.getElementById('register_email').addEventListener('blur', function() {
         const email = this.value.trim();
         if (email && !AuthUtils.validateEmail(email)) {
@@ -145,20 +137,16 @@ function initializeFormHandlers() {
             AuthUtils.clearError('register_email');
         }
     });
-    
-    // Login form - UPDATED VERSION
+
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const loginBtn = document.getElementById('login_btn');
         const email = document.getElementById('login_email').value.trim();
         const password = document.getElementById('login_password').value;
-        
-        console.log('Login attempt:', { email, password });
-        
+
         AuthUtils.setButtonLoading(loginBtn, true);
-        
+
         try {
-            // Validate inputs
             if (!AuthUtils.validateEmail(email)) {
                 AuthUtils.showToast('Please enter a valid email address', 'error');
                 return;
@@ -171,16 +159,27 @@ function initializeFormHandlers() {
 
             const user = await AuthUtils.apiLogin(email, password);
             AuthUtils.handleSuccessfulLogin(user);
-            
         } catch (error) {
             console.error('Login error:', error);
-            AuthUtils.showToast('Login failed', 'error');
+
+            if (error?.payload?.code === 'EMAIL_NOT_VERIFIED') {
+                AuthUtils.showToast('Verify your email before logging in. Sending a new verification link...', 'error');
+                try {
+                    const resendResult = await AuthUtils.apiResendVerification(email);
+                    if (resendResult?.debugVerificationUrl) {
+                        console.log('Verification link (local test):', resendResult.debugVerificationUrl);
+                    }
+                } catch (resendError) {
+                    console.error('Resend verification failed:', resendError);
+                }
+            } else {
+                AuthUtils.showToast(error.message || 'Login failed', 'error');
+            }
         } finally {
             AuthUtils.setButtonLoading(loginBtn, false);
         }
     });
-    
-    // Register form
+
     registerForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const registerBtn = document.getElementById('register_btn');
@@ -192,10 +191,7 @@ function initializeFormHandlers() {
             password: document.getElementById('register_password').value,
             confirmPassword: document.getElementById('confirm_password').value
         };
-        
-        console.log('Registration attempt:', formData);
-        
-        // Validation
+
         let isValid = true;
         if (!AuthUtils.validateName(formData.firstName)) {
             AuthUtils.showError('first_name', 'Please enter a valid first name');
@@ -221,11 +217,11 @@ function initializeFormHandlers() {
             isValid = false;
         }
         if (!isValid) return;
-        
+
         AuthUtils.setButtonLoading(registerBtn, true);
-        
+
         try {
-            const user = await AuthUtils.apiRegister({
+            const result = await AuthUtils.apiRegister({
                 firstName: formData.firstName,
                 lastName: formData.lastName,
                 email: formData.email,
@@ -233,8 +229,21 @@ function initializeFormHandlers() {
                 role: formData.role
             });
 
-            AuthUtils.showToast(`Account created successfully! Welcome, ${formData.firstName}.`, 'success');
-            AuthUtils.handleSuccessfulLogin(user);
+            if (result?.debugVerificationUrl) {
+                console.log('Verification link (local test):', result.debugVerificationUrl);
+            }
+
+            AuthUtils.showToast(result.message || 'Account created. Check your email for the verification link.', 'success');
+            if (typeof window.setAuthMode === 'function') {
+                window.setAuthMode('login');
+            }
+
+            const loginEmail = document.getElementById('login_email');
+            if (loginEmail) {
+                loginEmail.value = formData.email;
+            }
+
+            registerForm.reset();
         } catch (error) {
             console.error('Registration error:', error);
             if (error.status === 409) {
@@ -247,15 +256,13 @@ function initializeFormHandlers() {
     });
 }
 
-// Initialize everything when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM loaded, initializing app...');
-    
-    // Initialize Service Worker
+
     initializeServiceWorker();
-    
     initializeFormToggle();
     initializePWAInstall();
     AuthUtils.initializePasswordToggles();
     initializeFormHandlers();
+    handleEmailVerificationFromLink();
 });

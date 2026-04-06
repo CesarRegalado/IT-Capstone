@@ -124,11 +124,10 @@ class InstructorDashboard {
 
     saveAppState() {
         const state = {
+            ownerKey: this.currentUser?.id || this.currentUser?.email || null,
             section: this.currentSection,
             currentCourse: this.currentCourse ? this.currentCourse.id : null,
             currentDetailedCourse: this.currentDetailedCourse,
-            courses: this.courses,
-            sessions: this.sessions,
             timestamp: Date.now()
         };
         
@@ -144,9 +143,12 @@ class InstructorDashboard {
             const savedState = sessionStorage.getItem('instructorAppState');
             if (savedState) {
                 const state = JSON.parse(savedState);
-                
-                if (state.courses) this.courses = state.courses;
-                if (state.sessions) this.sessions = state.sessions;
+                const currentOwnerKey = this.currentUser?.id || this.currentUser?.email || null;
+                if (state.ownerKey && currentOwnerKey && state.ownerKey !== currentOwnerKey) {
+                    sessionStorage.removeItem('instructorAppState');
+                    this.updateDashboard();
+                    return;
+                }
                 
                 if (state.section) {
                     this.currentSection = state.section;
