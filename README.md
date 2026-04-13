@@ -1,4 +1,4 @@
-IT-Capstone Attendance Tracker (Working Branch)
+IT-Capstone Attendance Tracker (Working)
 
 Attendance tracking web app for instructors with QR-based student check-in.
 
