@@ -42,6 +42,7 @@ model User {
 
   courses     Course[]     @relation("FacultyCourses")
   attendances Attendance[] @relation("StudentAttendance")
+  enrollments Enrollment[] @relation("CourseEnrollmentStudent")
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens PasswordResetToken[]
 }
@@ -67,6 +68,7 @@ model Course {
   facultyUserId String
   faculty       User      @relation("FacultyCourses", fields: [facultyUserId], references: [id])
   sessions      Session[]
+  enrollments   Enrollment[]
 
   @@unique([code, semester])
 }
@@ -94,6 +96,19 @@ model Attendance {
   student User    @relation("StudentAttendance", fields: [studentUserId], references: [id], onDelete: Cascade)
 
   @@unique([studentUserId, sessionId]) // prevent double check-in
+}
+
+model Enrollment {
+  id            String   @id @default(uuid())
+  courseId      String
+  studentUserId String
+  createdAt     DateTime @default(now())
+
+  course  Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  student User   @relation("CourseEnrollmentStudent", fields: [studentUserId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, studentUserId])
+  @@index([studentUserId])
 }
 
 model EmailVerificationToken {

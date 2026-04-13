@@ -206,20 +206,7 @@ class InstructorDashboard {
 
         if (studentsResult.status === 'fulfilled' && studentsResult.value.ok) {
             const students = await studentsResult.value.json();
-            const instructorCourseIds = new Set(this.courses.map(course => course.id));
-            this.students = Array.isArray(students)
-                ? students.map(student => ({
-                    ...student,
-                    universityId: student.universityId || student.studentId || student.id,
-                    courses: Array.from(new Set([
-                        ...(Array.isArray(student.courses) ? student.courses : []),
-                        ...((student.attendances || [])
-                            .map(attendance => attendance?.session?.course?.id || attendance?.session?.courseId)
-                            .filter(courseId => courseId && instructorCourseIds.has(courseId)))
-                    ]))
-                }))
-                .filter(student => student.courses && student.courses.length > 0)
-                : [];
+            this.students = this.mapStudentsForInstructorCourses(students);
         } else {
             const reason = studentsResult.status === 'rejected'
                 ? studentsResult.reason
@@ -237,6 +224,37 @@ class InstructorDashboard {
             }
         });
 
+        this.ensureStudentCourseEnrollments();
+    }
+
+    mapStudentsForInstructorCourses(students) {
+        const instructorCourseIds = new Set(this.courses.map(course => course.id));
+        return Array.isArray(students)
+            ? students.map(student => ({
+                ...student,
+                universityId: student.universityId || student.studentId || student.id,
+                courses: Array.from(new Set([
+                    ...(Array.isArray(student.courses) ? student.courses : []),
+                    ...((student.enrollments || [])
+                        .map(enrollment => enrollment?.courseId || enrollment?.course?.id)
+                        .filter(courseId => courseId && instructorCourseIds.has(courseId))),
+                    ...((student.attendances || [])
+                        .map(attendance => attendance?.session?.course?.id || attendance?.session?.courseId)
+                        .filter(courseId => courseId && instructorCourseIds.has(courseId)))
+                ]))
+            }))
+            .filter(student => student.courses && student.courses.length > 0)
+            : [];
+    }
+
+    async refreshStudentsFromApi() {
+        const API = window.API_BASE || 'http://localhost:3000';
+        const response = await fetch(`${API}/students`);
+        if (!response.ok) {
+            throw new Error(`Failed to refresh students (HTTP ${response.status})`);
+        }
+        const students = await response.json();
+        this.students = this.mapStudentsForInstructorCourses(students);
         this.ensureStudentCourseEnrollments();
     }
 
@@ -2546,6 +2564,11 @@ class InstructorDashboard {
                 this.addStudentManually();
             });
         }
+
+        const importFileInput = document.getElementById('import_file_input');
+        if (importFileInput) {
+            importFileInput.onchange = (event) => this.handleImportFileSelected(event);
+        }
     }
 
     showAddMethod(method) {
@@ -2560,109 +2583,232 @@ class InstructorDashboard {
         return `${safeLocalPart}@studentid.attendance.local`;
     }
 
-    addStudentManually() {
+    looksLikeStudentId(value) {
+        const normalized = String(value || '').trim().toUpperCase();
+        if (!normalized) return false;
+        if (/^(STUDENT|SIS|NAME|ID)$/i.test(normalized)) return false;
+        return /^[A-Z0-9._-]{4,}$/.test(normalized);
+    }
+
+    splitCsvLine(line) {
+        const cells = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            const next = line[i + 1];
+            if (char === '"') {
+                if (inQuotes && next === '"') {
+                    current += '"';
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (char === ',' && !inQuotes) {
+                cells.push(current.trim());
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+
+        cells.push(current.trim());
+        return cells.map(cell => cell.replace(/^"(.*)"$/, '$1').trim());
+    }
+
+    parseStudentName(rawName) {
+        const normalized = String(rawName || '').trim();
+        if (!normalized) return null;
+
+        if (normalized.includes(',')) {
+            const [lastNameRaw, ...firstParts] = normalized.split(',');
+            const lastName = (lastNameRaw || '').trim();
+            const firstName = firstParts.join(',').trim();
+            if (!firstName || !lastName) return null;
+            return { firstName, lastName };
+        }
+
+        const parts = normalized.split(/\s+/).filter(Boolean);
+        if (parts.length < 2) return null;
+        const firstName = parts.shift();
+        const lastName = parts.join(' ');
+        return { firstName, lastName };
+    }
+
+    parseImportRow(fields) {
+        const cleanFields = fields
+            .map(field => String(field || '').replace(/\r/g, '').trim())
+            .filter(field => field.length > 0);
+
+        if (cleanFields.length === 0) return null;
+
+        const normalizedFirst = (cleanFields[0] || '').replace(/\s+/g, '').toLowerCase();
+        const normalizedSecond = (cleanFields[1] || '').replace(/\s+/g, '').toLowerCase();
+        if (
+            (normalizedFirst === 'student' && (normalizedSecond.includes('sisuserid') || normalizedSecond === 'id')) ||
+            normalizedFirst === 'pointspossible'
+        ) {
+            return null;
+        }
+
+        let studentId = '';
+        let nameRaw = '';
+
+        if (cleanFields.length >= 2 && this.looksLikeStudentId(cleanFields[1]) && !this.looksLikeStudentId(cleanFields[0])) {
+            nameRaw = cleanFields[0];
+            studentId = cleanFields[1];
+        } else if (cleanFields.length >= 3 && this.looksLikeStudentId(cleanFields[2]) && !this.looksLikeStudentId(cleanFields[0])) {
+            // Handles non-quoted CSV where "Last, First" became two columns.
+            nameRaw = `${cleanFields[0]}, ${cleanFields[1]}`;
+            studentId = cleanFields[2];
+        } else if (cleanFields.length >= 3 && this.looksLikeStudentId(cleanFields[0])) {
+            // Legacy format: StudentID, FirstName, LastName
+            studentId = cleanFields[0];
+            nameRaw = `${cleanFields[1]} ${cleanFields[2]}`;
+        } else if (cleanFields.length >= 2 && this.looksLikeStudentId(cleanFields[0])) {
+            // Fallback: StudentID, Name
+            studentId = cleanFields[0];
+            nameRaw = cleanFields.slice(1).join(' ');
+        } else {
+            return null;
+        }
+
+        const parsedName = this.parseStudentName(nameRaw);
+        if (!parsedName || !this.looksLikeStudentId(studentId)) {
+            return null;
+        }
+
+        return {
+            studentId: String(studentId).toUpperCase(),
+            firstName: parsedName.firstName,
+            lastName: parsedName.lastName
+        };
+    }
+
+    parseStudentImportInput(rawInput) {
+        const input = String(rawInput || '').replace(/\uFEFF/g, '').trim();
+        if (!input) return [];
+
+        const lines = input.split('\n').map(line => line.trim()).filter(Boolean);
+        const parsedRows = [];
+
+        for (const line of lines) {
+            const fields = line.includes('\t')
+                ? line.split('\t').map(value => value.trim())
+                : this.splitCsvLine(line);
+
+            const row = this.parseImportRow(fields);
+            if (row) parsedRows.push(row);
+        }
+
+        return parsedRows;
+    }
+
+    handleImportFileSelected(event) {
+        const file = event?.target?.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            const textarea = document.getElementById('import_textarea');
+            if (textarea) {
+                textarea.value = String(reader.result || '');
+                this.showToast(`Loaded ${file.name}. Click "Import Students" to continue.`);
+            }
+        };
+        reader.onerror = () => {
+            this.showToast('Could not read file');
+        };
+        reader.readAsText(file);
+    }
+
+    async addStudentManually() {
         const studentId = document.getElementById('manual_student_id').value.trim();
         const firstName = document.getElementById('manual_first_name').value.trim();
         const lastName = document.getElementById('manual_last_name').value.trim();
         const normalizedStudentId = studentId.toUpperCase();
-        const email = this.getStudentEmailFromUniversityId(normalizedStudentId);
 
         if (!normalizedStudentId || !firstName || !lastName) {
             this.showToast('Please fill in all fields');
             return;
         }
 
-        // Check if student already exists
-        let student = this.students.find(s => s.universityId === normalizedStudentId);
-        
-        if (!student) {
-            // Create new student
-            student = {
-                id: 'student_' + Date.now(),
-                universityId: normalizedStudentId,
-                firstName: firstName,
-                lastName: lastName,
-                email: email,
-                courses: [this.currentCourse.id]
-            };
-            this.students.push(student);
-        } else {
-            student.firstName = firstName;
-            student.lastName = lastName;
-            if (!student.email) {
-                student.email = email;
-            }
-            // Add course to existing student
-            if (!student.courses) student.courses = [];
-            if (!student.courses.includes(this.currentCourse.id)) {
-                student.courses.push(this.currentCourse.id);
-            } else {
-                this.showToast('Student already enrolled in this course');
-                return;
-            }
-        }
+        try {
+            const API = window.API_BASE || 'http://localhost:3000';
+            const response = await fetch(`${API}/courses/${encodeURIComponent(this.currentCourse.id)}/students/import`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    facultyUserId: this.currentUser?.id || '',
+                    facultyEmail: this.currentUser?.email || '',
+                    students: [{
+                        studentId: normalizedStudentId,
+                        firstName,
+                        lastName
+                    }]
+                })
+            });
 
-        this.showToast(`Added ${firstName} ${lastName} to ${this.currentCourse.code}`);
-        document.getElementById('manual_student_form').reset();
-        this.loadEnrolledStudents();
-        this.renderStudentsTable(this.currentCourse.id);
-        this.saveAppState();
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(payload.error || `Failed to add student (HTTP ${response.status})`);
+            }
+
+            await this.refreshStudentsFromApi();
+            this.showToast(payload.added > 0
+                ? `Added ${firstName} ${lastName} to ${this.currentCourse.code}`
+                : 'Student already enrolled in this course');
+            document.getElementById('manual_student_form').reset();
+            this.loadEnrolledStudents();
+            this.renderStudentsTable(this.currentCourse.id);
+            this.saveAppState();
+        } catch (error) {
+            console.error('Error adding student manually:', error);
+            this.showToast(error.message || 'Error adding student');
+        }
     }
 
-    importStudentList() {
+    async importStudentList() {
         const textarea = document.getElementById('import_textarea');
-        const lines = textarea.value.split('\n').filter(line => line.trim());
+        const parsedStudents = this.parseStudentImportInput(textarea.value);
 
-        let added = 0;
-        let skipped = 0;
+        if (!parsedStudents.length) {
+            this.showToast('No valid student rows found. Check CSV columns and format.');
+            return;
+        }
 
-        lines.forEach(line => {
-            const parts = line.split(',').map(p => p.trim());
-            if (parts.length >= 3) {
-                const [studentIdRaw, firstName, lastName] = parts;
-                const studentId = String(studentIdRaw || '').toUpperCase();
-                const email = this.getStudentEmailFromUniversityId(studentId);
+        try {
+            const API = window.API_BASE || 'http://localhost:3000';
+            const response = await fetch(`${API}/courses/${encodeURIComponent(this.currentCourse.id)}/students/import`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    facultyUserId: this.currentUser?.id || '',
+                    facultyEmail: this.currentUser?.email || '',
+                    students: parsedStudents
+                })
+            });
 
-                if (!studentId || !firstName || !lastName) {
-                    skipped++;
-                    return;
-                }
-                
-                let student = this.students.find(s => s.universityId === studentId);
-                
-                if (!student) {
-                    student = {
-                        id: 'student_' + Date.now() + '_' + Math.random(),
-                        universityId: studentId,
-                        firstName: firstName,
-                        lastName: lastName,
-                        email: email,
-                        courses: [this.currentCourse.id]
-                    };
-                    this.students.push(student);
-                    added++;
-                } else {
-                    if (!student.email) {
-                        student.email = email;
-                    }
-                    if (!student.courses) student.courses = [];
-                    if (!student.courses.includes(this.currentCourse.id)) {
-                        student.courses.push(this.currentCourse.id);
-                        added++;
-                    } else {
-                        skipped++;
-                    }
-                }
-            } else {
-                skipped++;
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(payload.error || `Failed to import students (HTTP ${response.status})`);
             }
-        });
 
-        this.showToast(`Imported ${added} students${skipped > 0 ? `, skipped ${skipped} duplicates` : ''}`);
-        textarea.value = '';
-        this.loadEnrolledStudents();
-        this.renderStudentsTable(this.currentCourse.id);
-        this.saveAppState();
+            await this.refreshStudentsFromApi();
+            this.showToast(`Imported ${payload.added || 0} students${(payload.skipped || 0) > 0 ? `, skipped ${payload.skipped} duplicates/invalid` : ''}`);
+            textarea.value = '';
+            const fileInput = document.getElementById('import_file_input');
+            if (fileInput) {
+                fileInput.value = '';
+            }
+            this.loadEnrolledStudents();
+            this.renderStudentsTable(this.currentCourse.id);
+            this.saveAppState();
+        } catch (error) {
+            console.error('Error importing student list:', error);
+            this.showToast(error.message || 'Error importing students');
+        }
     }
     loadEnrolledStudents() {
         const courseStudents = this.getStudentsForCourse(this.currentCourse.id);
@@ -2690,19 +2836,32 @@ class InstructorDashboard {
         }
     }
 
-    removeStudentFromCourse(studentId) {
+    async removeStudentFromCourse(studentId) {
         const student = this.students.find(s => s.id === studentId);
         if (!student) return;
 
         if (confirm(`Remove ${student.firstName} ${student.lastName} from ${this.currentCourse.code}?`)) {
-            if (student.courses) {
-                student.courses = student.courses.filter(cid => cid !== this.currentCourse.id);
+            try {
+                const API = window.API_BASE || 'http://localhost:3000';
+                const response = await fetch(
+                    `${API}/courses/${encodeURIComponent(this.currentCourse.id)}/students/${encodeURIComponent(student.id)}?facultyUserId=${encodeURIComponent(this.currentUser?.id || '')}&facultyEmail=${encodeURIComponent(this.currentUser?.email || '')}`,
+                    { method: 'DELETE' }
+                );
+
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(payload.error || `Failed to remove student (HTTP ${response.status})`);
+                }
+
+                await this.refreshStudentsFromApi();
+                this.showToast(`Removed ${student.firstName} ${student.lastName}`);
+                this.loadEnrolledStudents();
+                this.renderStudentsTable(this.currentCourse.id);
+                this.saveAppState();
+            } catch (error) {
+                console.error('Error removing student from course:', error);
+                this.showToast(error.message || 'Error removing student');
             }
-            
-            this.showToast(`Removed ${student.firstName} ${student.lastName}`);
-            this.loadEnrolledStudents();
-            this.renderStudentsTable(this.currentCourse.id);
-            this.saveAppState();
         }
     }
 

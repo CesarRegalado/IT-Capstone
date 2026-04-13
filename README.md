@@ -30,12 +30,13 @@ Main Workflow ()
 1. Instructor registers account
 2. Instructor logs in
 3. Instructor creates classes
-4. Instructor starts attendance session (QR/code generated)
-5. Student scans QR and opens public check-in page
-6. Student enters student ID + name and submits
-7. Instructor sees attendance update live
-8. Instructor ends session
-9. Instructor can review/export reports later
+4. Instructor can import csv class roster
+5. Instructor starts attendance session (QR/code generated)
+6. Student scans QR and opens public check-in page
+7. Student enters student ID + name and submits
+8. Instructor sees attendance update live
+9. Instructor ends session
+10. Instructor can review/export reports later
 
 Architecture (Current)
 

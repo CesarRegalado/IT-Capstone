@@ -332,8 +332,12 @@
                             <!-- Import List -->
                             <div class="add_method_content hidden" id="import_add">
                                 <h4>Import Student List</h4>
-                                <p class="help_text">Paste student data (one per line): StudentID, FirstName, LastName</p>
-                                <textarea id="import_textarea" placeholder="S12345, John, Doe&#10;S12346, Jane, Smith" rows="8"></textarea>
+                                <p class="help_text">Upload a CSV or paste rows.</p>
+                                <div class="form_group">
+                                    <label for="import_file_input">CSV File</label>
+                                    <input type="file" id="import_file_input" accept=".csv,.txt,text/csv,text/plain">
+                                </div>
+                                <textarea id="import_textarea" placeholder="Student, SIS User ID&#10;&quot;John, Doe&quot;, 12345670&#10;" rows="8"></textarea>
                                 <button class="btn btn_primary" onclick="importStudentList()">
                                     <i class="fas fa-upload"></i>
                                     Import Students

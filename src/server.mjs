@@ -245,6 +245,10 @@ function normalizeCourseSchedule(schedule) {
   };
 }
 
+function normalizeName(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 // ---------- Middleware ----------
 app.use(express.json());
 
@@ -643,6 +647,11 @@ app.get('/students', async (_req, res) => {
       where: { role: UserRole.STUDENT },
       include: {
         studentProfile: true,
+        enrollments: {
+          include: {
+            course: true,
+          },
+        },
         attendances: {
           include: {
             session: {
@@ -687,6 +696,11 @@ app.get('/students/:id', async (req, res) => {
       where: { id },
       include: {
         studentProfile: true,
+        enrollments: {
+          include: {
+            course: true,
+          },
+        },
         attendances: {
           include: {
             session: {
@@ -899,6 +913,238 @@ app.get('/courses/:id', async (req, res) => {
     }
 
     res.json(course);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /courses/:id/students
+app.get('/courses/:id/students', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const facultyUserId = typeof req.query.facultyUserId === 'string' ? req.query.facultyUserId.trim() : '';
+    const facultyEmail = typeof req.query.facultyEmail === 'string' ? req.query.facultyEmail.trim().toLowerCase() : '';
+
+    const course = await prisma.course.findUnique({
+      where: { id },
+      include: {
+        faculty: true,
+        enrollments: {
+          include: {
+            student: {
+              include: {
+                studentProfile: true,
+              },
+            },
+          },
+          orderBy: {
+            createdAt: 'asc',
+          },
+        },
+      },
+    });
+
+    if (!course) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+
+    if (facultyUserId && course.facultyUserId !== facultyUserId) {
+      return res.status(403).json({ error: 'You can only view students for your own courses' });
+    }
+
+    if (facultyEmail && course.faculty?.email?.toLowerCase() !== facultyEmail) {
+      return res.status(403).json({ error: 'You can only view students for your own courses' });
+    }
+
+    const students = course.enrollments.map((enrollment) => decorateUser(enrollment.student));
+    res.json(students);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /courses/:id/students/import
+// Body: { students: [{ studentId, firstName, lastName }], facultyUserId?, facultyEmail? }
+app.post('/courses/:id/students/import', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const facultyUserId = typeof req.body?.facultyUserId === 'string' ? req.body.facultyUserId.trim() : '';
+    const facultyEmail = typeof req.body?.facultyEmail === 'string' ? req.body.facultyEmail.trim().toLowerCase() : '';
+    const inputStudents = Array.isArray(req.body?.students) ? req.body.students : [];
+
+    if (inputStudents.length === 0) {
+      return res.status(400).json({ error: 'students array is required' });
+    }
+
+    const course = await prisma.course.findUnique({
+      where: { id },
+      include: {
+        faculty: true,
+      },
+    });
+
+    if (!course) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+
+    if (facultyUserId && course.facultyUserId !== facultyUserId) {
+      return res.status(403).json({ error: 'You can only modify your own courses' });
+    }
+
+    if (facultyEmail && course.faculty?.email?.toLowerCase() !== facultyEmail) {
+      return res.status(403).json({ error: 'You can only modify your own courses' });
+    }
+
+    const normalizedRows = inputStudents
+      .map((row) => ({
+        studentId: normalizeStudentId(row?.studentId),
+        firstName: normalizeName(row?.firstName),
+        lastName: normalizeName(row?.lastName),
+      }))
+      .filter((row) => row.studentId && row.firstName && row.lastName);
+
+    if (normalizedRows.length === 0) {
+      return res.status(400).json({ error: 'No valid students found in payload' });
+    }
+
+    const seenIds = new Set();
+    let added = 0;
+    let skipped = 0;
+
+    // Reuse one hashed placeholder for imported roster students to avoid expensive
+    // per-row password hashing in bulk imports.
+    const importedStudentPasswordHash = hashPassword('enrolled_roster_student_placeholder');
+
+    for (const row of normalizedRows) {
+      if (seenIds.has(row.studentId)) {
+        skipped += 1;
+        continue;
+      }
+      seenIds.add(row.studentId);
+
+      const lookupEmail = studentIdToEmail(row.studentId);
+
+      let student = await prisma.user.findUnique({
+        where: { email: lookupEmail },
+        include: { studentProfile: true },
+      });
+
+      if (student && student.role !== UserRole.STUDENT) {
+        skipped += 1;
+        continue;
+      }
+
+      if (!student) {
+        student = await prisma.user.create({
+          data: {
+            email: lookupEmail,
+            firstName: row.firstName,
+            lastName: row.lastName,
+            role: UserRole.STUDENT,
+            password: importedStudentPasswordHash,
+            studentProfile: {
+              create: {},
+            },
+          },
+          include: { studentProfile: true },
+        });
+      } else {
+        const needsProfile = !student.studentProfile;
+        const shouldUpdateNames =
+          (row.firstName && row.firstName !== student.firstName) ||
+          (row.lastName && row.lastName !== student.lastName);
+
+        if (needsProfile || shouldUpdateNames) {
+          student = await prisma.user.update({
+            where: { id: student.id },
+            data: {
+              ...(row.firstName ? { firstName: row.firstName } : {}),
+              ...(row.lastName ? { lastName: row.lastName } : {}),
+              ...(needsProfile ? { studentProfile: { create: {} } } : {}),
+            },
+            include: { studentProfile: true },
+          });
+        }
+      }
+
+      try {
+        await prisma.enrollment.create({
+          data: {
+            courseId: id,
+            studentUserId: student.id,
+          },
+        });
+        added += 1;
+      } catch (enrollmentError) {
+        if (enrollmentError?.code === 'P2002') {
+          skipped += 1;
+          continue;
+        }
+        throw enrollmentError;
+      }
+    }
+
+    res.json({
+      ok: true,
+      added,
+      skipped,
+      totalProcessed: normalizedRows.length,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /courses/:courseId/students/:studentUserId
+app.delete('/courses/:courseId/students/:studentUserId', async (req, res) => {
+  try {
+    const { courseId, studentUserId } = req.params;
+    const facultyUserId = typeof req.query.facultyUserId === 'string' ? req.query.facultyUserId.trim() : '';
+    const facultyEmail = typeof req.query.facultyEmail === 'string' ? req.query.facultyEmail.trim().toLowerCase() : '';
+
+    const course = await prisma.course.findUnique({
+      where: { id: courseId },
+      include: { faculty: true },
+    });
+
+    if (!course) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+
+    if (facultyUserId && course.facultyUserId !== facultyUserId) {
+      return res.status(403).json({ error: 'You can only modify your own courses' });
+    }
+
+    if (facultyEmail && course.faculty?.email?.toLowerCase() !== facultyEmail) {
+      return res.status(403).json({ error: 'You can only modify your own courses' });
+    }
+
+    const existingEnrollment = await prisma.enrollment.findUnique({
+      where: {
+        courseId_studentUserId: {
+          courseId,
+          studentUserId,
+        },
+      },
+    });
+
+    if (!existingEnrollment) {
+      return res.status(404).json({ error: 'Enrollment not found' });
+    }
+
+    await prisma.enrollment.delete({
+      where: {
+        courseId_studentUserId: {
+          courseId,
+          studentUserId,
+        },
+      },
+    });
+
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
