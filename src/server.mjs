@@ -10,7 +10,7 @@ const validAttendanceStatuses = Object.values(AttendanceStatus);
 const CHECKIN_ID_DOMAIN = 'studentid.attendance.local';
 const EMAIL_VERIFICATION_TTL_MINUTES = 60;
 const PASSWORD_RESET_TTL_MINUTES = 30;
-const EMAIL_MODE = process.env.EMAIL_MODE || 'console';
+const EMAIL_MODE = process.env.EMAIL_MODE || 'resend';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const MAIL_FROM = process.env.MAIL_FROM || 'onboarding@resend.dev';
 
